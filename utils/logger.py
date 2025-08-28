@@ -65,7 +65,7 @@ class Logger:
             
         self.use_wandb = use_wandb and (wandb is not None) # Ensure wandb is imported
         if self.use_wandb:
-            display_name = f"{algo}_{run_name}"  # e.g., "MAPPO_lr0.0005_nenvs4..."
+            display_name = f"{run_name}"  # e.g., "MAPPO_lr0.0005_nenvs4..."
             wandb_config = load_wandb_config()
 
             print(f"WANDB_ENTITY: {wandb_config['entity']}")

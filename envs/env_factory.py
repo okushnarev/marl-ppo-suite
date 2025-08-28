@@ -31,6 +31,8 @@ def create_env(args, is_eval=False):
     Returns:
         env: The wrapped environment
     """
+
+
     from smac.env import StarCraft2Env
     from envs.wrappers import AgentIDWrapper, DeathMaskingWrapper
     # Create base StarCraft2Env with safe defaults

@@ -1,4 +1,3 @@
-
 import os
 import numpy as np
 import torch
@@ -20,6 +19,7 @@ class MAPPO:
     This agent implements the MAPPO algorithm for multi-agent reinforcement learning
     with centralized training and decentralized execution.
     """
+
     def __init__(self, args, obs_space, state_space, action_space, device=torch.device("cpu")):
         """
         Initialize the MAPPO agent.
@@ -40,14 +40,13 @@ class MAPPO:
         self._validate_inputs(args, obs_dim, state_dim, action_dim)
 
         self.args = args
-        self.state_type = args.state_type # [FP, EP, AS]
+        self.state_type = args.state_type  # [FP, EP, AS]
         self.n_agents = args.n_agents
         self.device = device
 
         # Initialize core components
         self._init_hyperparameters()
         self._init_networks(obs_space, state_space, action_space)
-
 
         if self.use_value_norm:
             self.value_normalizer = create_value_normalizer(
@@ -60,9 +59,10 @@ class MAPPO:
     def _validate_inputs(self, args, obs_dim: int, state_dim: int, action_dim: int) -> None:
         """Validate input parameters."""
         if obs_dim <= 0 or state_dim <= 0 or action_dim <= 0:
-            raise ValueError(f"Dimensions must be positive integers: obs_dim={obs_dim}, state_dim={state_dim}, action_dim={action_dim}")
+            raise ValueError(
+                f"Dimensions must be positive integers: obs_dim={obs_dim}, state_dim={state_dim}, action_dim={action_dim}")
         required_attrs = ['n_agents', 'use_rnn', 'state_type', 'lr', 'clip_param', 'ppo_epoch',
-                         'num_mini_batch']
+                          'num_mini_batch']
         missing = [attr for attr in required_attrs if not hasattr(args, attr)]
         if missing:
             raise AttributeError(f"args missing required attributes: {missing}")
@@ -78,7 +78,7 @@ class MAPPO:
         self.max_grad_norm = self.args.max_grad_norm
         self.use_max_grad_norm = self.args.use_max_grad_norm
         self.use_clipped_value_loss = self.args.use_clipped_value_loss
-        self.use_value_norm= self.args.use_value_norm
+        self.use_value_norm = self.args.use_value_norm
         self.use_huber_loss = self.args.use_huber_loss
         self.huber_delta = self.args.huber_delta
 
@@ -89,8 +89,8 @@ class MAPPO:
         self.gae_lambda = self.args.gae_lambda
 
     def _init_networks(self,
-                       obs_space: gymnasium.spaces.Box, 
-                       state_space: gymnasium.spaces.Box, 
+                       obs_space: gymnasium.spaces.Box,
+                       state_space: gymnasium.spaces.Box,
                        action_space: gymnasium.spaces.Discrete) -> None:
         """Initialize actor and critic networks with proper weight initialization."""
 
@@ -147,11 +147,11 @@ class MAPPO:
     def get_actions(
             self,
             obs: torch.Tensor,
-            rnn_states: torch.Tensor=None,
-            masks: torch.Tensor=None,
+            rnn_states: torch.Tensor = None,
+            masks: torch.Tensor = None,
             available_actions: torch.Tensor = None,
             deterministic: bool = False
-        ):
+    ):
         """
         Get actions from the policy network.
         Batched version -> Batch(B) = (n_rollout_threads, n_agents) = n_rollout_threads * n_agents
@@ -184,12 +184,12 @@ class MAPPO:
 
         return actions, action_log_probs, rnn_states_out
 
-    def get_values(self, 
-                   state:torch.Tensor, 
-                   obs:torch.Tensor, 
-                   active_masks:torch.Tensor, 
-                   rnn_states:torch.Tensor=None, 
-                   masks:torch.Tensor=None):
+    def get_values(self,
+                   state: torch.Tensor,
+                   obs: torch.Tensor,
+                   active_masks: torch.Tensor,
+                   rnn_states: torch.Tensor = None,
+                   masks: torch.Tensor = None):
         """
         Get values from the critic network.
         Batched version -> Batch(B) = (n_rollout_threads, n_agents) = n_rollout_threads * n_agents
@@ -208,13 +208,13 @@ class MAPPO:
                                       if RNN is disabled
         """
         with torch.no_grad():
-            
+
             if self.state_type == "AS":
                 # Concatenate observation and state spaces for AS state type
-                state = state * active_masks # (batch_size, n_state) # Mask out inactive agents
-                state = torch.cat([obs, state], dim=-1)  
-        
-            # Handle RNN states and masks based on whether RNN is enabled
+                state = state * active_masks  # (batch_size, n_state) # Mask out inactive agents
+                state = torch.cat([obs, state], dim=-1)
+
+                # Handle RNN states and masks based on whether RNN is enabled
             if self.use_rnn:
                 if rnn_states is None or masks is None:
                     raise ValueError("rnn_states and masks must be provided when RNN is enabled")
@@ -228,7 +228,8 @@ class MAPPO:
 
             return values, rnn_states_out
 
-    def evaluate_actions(self, state, obs, actions, available_actions, masks, active_masks, actor_h0=None, critic_h0=None):
+    def evaluate_actions(self, state, obs, actions, available_actions, masks, active_masks, actor_h0=None,
+                         critic_h0=None):
         """
         Evaluate actions for training.
 
@@ -251,15 +252,14 @@ class MAPPO:
             actor_h0,
             masks,
             available_actions)
-        
+
         if self.state_type == "AS":
-            state = state * active_masks # (seq_len, batch_size, n_state) # Mask out inactive agents
+            state = state * active_masks  # (seq_len, batch_size, n_state) # Mask out inactive agents
             # Concatenate observation and state spaces for AS state type
             state = torch.cat([obs, state], dim=-1)
 
         values, _ = self.critic(state, critic_h0, masks)
         return values, action_log_probs, dist_entropy
-
 
     def compute_value_loss(self, values, value_preds_batch, returns_batch):
         """
@@ -286,7 +286,8 @@ class MAPPO:
             if self.use_huber_loss:
                 # Compute Huber loss for clipped and unclipped predictions
                 value_losses = F.huber_loss(values, returns, delta=self.huber_delta, reduction='none')
-                value_losses_clipped = F.huber_loss(value_pred_clipped, returns, delta=self.huber_delta, reduction='none')
+                value_losses_clipped = F.huber_loss(value_pred_clipped, returns, delta=self.huber_delta,
+                                                    reduction='none')
                 value_loss = torch.max(value_losses, value_losses_clipped).mean()
             else:
                 value_losses = (values - returns).pow(2)
@@ -311,11 +312,19 @@ class MAPPO:
             tuple: (value_loss, policy_loss, dist_entropy)
         """
         metrics = {}
-
         # Extract data from mini-batch
-        (obs_batch, global_state_batch, actor_h0_batch, critic_h0_batch,
-            actions_batch, values_batch, returns_batch, masks_batch, active_masks_batch,
-            old_action_log_probs_batch, advantages_batch, available_actions_batch) = mini_batch
+        (obs_batch,
+         global_state_batch,
+         actor_h0_batch,
+         critic_h0_batch,
+         actions_batch,
+         values_batch,
+         returns_batch,
+         masks_batch,
+         active_masks_batch,
+         old_action_log_probs_batch,
+         advantages_batch,
+         available_actions_batch) = mini_batch
 
         # Evaluate actions
         values, action_log_probs, dist_entropy = self.evaluate_actions(
@@ -353,34 +362,34 @@ class MAPPO:
 
         # Update metrics
         metrics.update({
-            'critic_loss': critic_loss.item(),
-            'actor_loss': actor_loss.item(),
-            'entropy_loss': entropy_loss.item(),
-            'approx_kl': approx_kl,
-            'clip_ratio': clip_ratio,
-            'actor_grad_norm': actor_grad_norm,
+            'critic_loss':      critic_loss.item(),
+            'actor_loss':       actor_loss.item(),
+            'entropy_loss':     entropy_loss.item(),
+            'approx_kl':        approx_kl,
+            'clip_ratio':       clip_ratio,
+            'actor_grad_norm':  actor_grad_norm,
             'critic_grad_norm': critic_grad_norm
         })
 
-        return  metrics
+        return metrics
 
     def train(self, buffer):
         """
         Train the policy using experiences from the buffer.
         """
         train_info = {
-            'critic_loss': 0,
-            'actor_loss': 0,
-            'entropy_loss': 0,
-            'approx_kl': 0,
-            'clip_ratio': 0,
-            'actor_grad_norm': 0,
+            'critic_loss':      0,
+            'actor_loss':       0,
+            'entropy_loss':     0,
+            'approx_kl':        0,
+            'clip_ratio':       0,
+            'actor_grad_norm':  0,
             'critic_grad_norm': 0,
         }
 
         # Train for ppo_epoch iterations
         for _ in range(self.ppo_epoch):
-            
+
             if self.use_rnn:
                 # Generate mini-batches
                 mini_batches = buffer.get_minibatches_seq_first(
@@ -415,7 +424,7 @@ class MAPPO:
             p['lr'] = lr_now
 
         return {
-            'actor_lr': self.actor_optimizer.param_groups[0]['lr'],
+            'actor_lr':  self.actor_optimizer.param_groups[0]['lr'],
             'critic_lr': self.critic_optimizer.param_groups[0]['lr']
         }
 
@@ -423,12 +432,11 @@ class MAPPO:
         """Save both actor and critic networks."""
         # Save model weights and optimizer states
         model_path = save_path
-       
 
         torch.save({
-            'actor_state_dict': self.actor.state_dict(),
-            'critic_state_dict': self.critic.state_dict(),
-            'actor_optimizer_state_dict': self.actor_optimizer.state_dict(),
+            'actor_state_dict':            self.actor.state_dict(),
+            'critic_state_dict':           self.critic.state_dict(),
+            'actor_optimizer_state_dict':  self.actor_optimizer.state_dict(),
             'critic_optimizer_state_dict': self.critic_optimizer.state_dict(),
         }, model_path)
 
@@ -454,5 +462,3 @@ class MAPPO:
         if os.path.exists(args_path):
             args_dict = torch.load(args_path, weights_only=False)
             self.args = args_dict['args']
-
-

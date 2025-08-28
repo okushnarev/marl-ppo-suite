@@ -9,6 +9,7 @@ from utils.scheduler import LinearScheduler
 from utils.value_normalizers import create_value_normalizer
 from typing import Optional
 
+
 class LightMAPPO:
     """
     Multi-Agent Proximal Policy Optimization (MAPPO) agent implementation (MLP only)
@@ -16,6 +17,7 @@ class LightMAPPO:
     This agent implements the MAPPO algorithm for multi-agent reinforcement learning
     with centralized training and decentralized execution.
     """
+
     def __init__(self, args, obs_dim, state_dim, action_dim, device=torch.device("cpu")):
         """
         Initialize the MAPPO agent.
@@ -33,7 +35,7 @@ class LightMAPPO:
         self.args = args
         self.device = device
 
-         # Initialize core components
+        # Initialize core components
         self._init_hyperparameters()
         self._init_networks(obs_dim, state_dim, action_dim)
 
@@ -50,7 +52,7 @@ class LightMAPPO:
         if obs_dim <= 0 or state_dim <= 0 or action_dim <= 0:
             raise ValueError("Dimensions must be positive integers")
         required_attrs = ['n_agents', 'lr', 'clip_param', 'ppo_epoch',
-                         'num_mini_batch']
+                          'num_mini_batch']
         missing = [attr for attr in required_attrs if not hasattr(args, attr)]
         if missing:
             raise AttributeError(f"args missing required attributes: {missing}")
@@ -138,9 +140,10 @@ class LightMAPPO:
             tuple: (actions, action_log_probs)
         """
         with torch.no_grad():
-            #Convert to tensors
-            obs = torch.tensor(obs, dtype=torch.float32).to(self.device) # (n_agents, n_obs)
-            available_actions = torch.tensor(available_actions, dtype=torch.float32).to(self.device) # (n_agents, n_actions)
+            # Convert to tensors
+            obs = torch.tensor(obs, dtype=torch.float32).to(self.device)  # (n_agents, n_obs)
+            available_actions = torch.tensor(available_actions, dtype=torch.float32).to(
+                self.device)  # (n_agents, n_actions)
 
             # Process each agent's observations
             actions, action_log_probs = self.actor.get_actions(
@@ -165,16 +168,16 @@ class LightMAPPO:
         """
         with torch.no_grad():
             # Convert numpy arrays to torch tensors and move to device
-            state = torch.tensor(state, dtype=torch.float32).to(self.device) # (n_state)
-            state = state.unsqueeze(0) # (1, n_state)
-            state = state.repeat(self.args.n_agents, 1) # (n_agents, n_state)
-            active_masks = torch.tensor(active_masks, dtype=torch.float32).to(self.device) # (n_agents,)
-            state = state * active_masks.unsqueeze(1) # (n_agents, n_state) # Mask out inactive agents
-            obs = torch.tensor(obs, dtype=torch.float32).to(self.device) #(n_agents, n_obs)
+            state = torch.tensor(state, dtype=torch.float32).to(self.device)  # (n_state)
+            state = state.unsqueeze(0)  # (1, n_state)
+            state = state.repeat(self.args.n_agents, 1)  # (n_agents, n_state)
+            active_masks = torch.tensor(active_masks, dtype=torch.float32).to(self.device)  # (n_agents,)
+            state = state * active_masks.unsqueeze(1)  # (n_agents, n_state) # Mask out inactive agents
+            obs = torch.tensor(obs, dtype=torch.float32).to(self.device)  # (n_agents, n_obs)
 
             critic_input = torch.cat((state, obs), dim=-1)
 
-            values = self.critic(critic_input) # (n_agents, )
+            values = self.critic(critic_input)  # (n_agents, )
             values = values.cpu().numpy()
 
         return values
@@ -194,14 +197,13 @@ class LightMAPPO:
             tuple: (values, action_log_probs, dist_entropy)
         """
         # Convert numpy arrays to torch tensors and move to device
-        state = state.unsqueeze(1) # (batch_size, 1, n_state)
-        state = state.repeat(1, self.args.n_agents, 1) # (batch_size, n_agents, n_state)
-        state = state * active_masks # (batch_size, n_agents, n_state) # Mask out inactive agents
-        critic_input = torch.cat((state, obs), dim=-1) # (batch_size, n_agents, n_state + n_obs)
-
+        state = state.unsqueeze(1)  # (batch_size, 1, n_state)
+        state = state.repeat(1, self.args.n_agents, 1)  # (batch_size, n_agents, n_state)
+        state = state * active_masks  # (batch_size, n_agents, n_state) # Mask out inactive agents
+        critic_input = torch.cat((state, obs), dim=-1)  # (batch_size, n_agents, n_state + n_obs)
 
         action_log_probs, dist_entropy = self.actor.evaluate_actions(obs, actions, available_actions)
-        values = self.critic(critic_input) # (batch_size, n_agents, 1)
+        values = self.critic(critic_input)  # (batch_size, n_agents, 1)
 
         return values, action_log_probs, dist_entropy
 
@@ -230,7 +232,8 @@ class LightMAPPO:
             if self.use_huber_loss:
                 # Compute Huber loss for clipped and unclipped predictions
                 value_losses = F.huber_loss(values, returns, delta=self.huber_delta, reduction='none')
-                value_losses_clipped = F.huber_loss(value_pred_clipped, returns, delta=self.huber_delta, reduction='none')
+                value_losses_clipped = F.huber_loss(value_pred_clipped, returns, delta=self.huber_delta,
+                                                    reduction='none')
                 value_loss = torch.max(value_losses, value_losses_clipped).mean()
             else:
                 value_losses = (values - returns).pow(2)
@@ -256,8 +259,16 @@ class LightMAPPO:
         """
         metrics = {}
         # Extract data from mini-batch
-        (obs_batch, global_state_batch, actions_batch, values_batch, returns_batch, masks_batch, active_masks_batch,
-            old_action_log_probs_batch, advantages_batch, available_actions_batch) = mini_batch
+        (obs_batch,
+         global_state_batch,
+         actions_batch,
+         values_batch,
+         returns_batch,
+         masks_batch,
+         active_masks_batch,
+         old_action_log_probs_batch,
+         advantages_batch,
+         available_actions_batch) = mini_batch
 
         # Evaluate actions
         values, action_log_probs, dist_entropy = self.evaluate_actions(
@@ -292,32 +303,33 @@ class LightMAPPO:
 
         # Update metrics
         metrics.update({
-            'critic_loss': critic_loss.item(),
-            'actor_loss': actor_loss.item(),
-            'entropy_loss': entropy_loss.item(),
-            'approx_kl': approx_kl,
-            'clip_ratio': clip_ratio,
-            'actor_grad_norm': actor_grad_norm,
+            'critic_loss':      critic_loss.item(),
+            'actor_loss':       actor_loss.item(),
+            'entropy_loss':     entropy_loss.item(),
+            'approx_kl':        approx_kl,
+            'clip_ratio':       clip_ratio,
+            'actor_grad_norm':  actor_grad_norm,
             'critic_grad_norm': critic_grad_norm
         })
 
-        return  metrics
+        return metrics
 
     def train(self, buffer):
         """
         Train the policy using experiences from the buffer.
         """
         train_info = {
-            'critic_loss': 0,
-            'actor_loss': 0,
-            'entropy_loss': 0,
-            'approx_kl': 0,
-            'clip_ratio': 0,
-            'actor_grad_norm': 0,
+            'critic_loss':      0,
+            'actor_loss':       0,
+            'entropy_loss':     0,
+            'approx_kl':        0,
+            'clip_ratio':       0,
+            'actor_grad_norm':  0,
             'critic_grad_norm': 0,
         }
 
         # Train for ppo_epoch iterations
+        # (default) ppo_epoch = 15
         for _ in range(self.ppo_epoch):
 
             # Generate mini-batches
@@ -348,7 +360,7 @@ class LightMAPPO:
             p['lr'] = lr_now
 
         return {
-            'actor_lr': self.actor_optimizer.param_groups[0]['lr'],
+            'actor_lr':  self.actor_optimizer.param_groups[0]['lr'],
             'critic_lr': self.critic_optimizer.param_groups[0]['lr']
         }
 
@@ -360,11 +372,11 @@ class LightMAPPO:
             save_path (str): Path to save the model
         """
         torch.save({
-            'actor_state_dict': self.actor.state_dict(),
-            'critic_state_dict': self.critic.state_dict(),
-            'actor_optimizer_state_dict': self.actor_optimizer.state_dict(),
+            'actor_state_dict':            self.actor.state_dict(),
+            'critic_state_dict':           self.critic.state_dict(),
+            'actor_optimizer_state_dict':  self.actor_optimizer.state_dict(),
             'critic_optimizer_state_dict': self.critic_optimizer.state_dict(),
-            'args': self.args,
+            'args':                        self.args,
         }, save_path)
 
     def load(self, model_path):

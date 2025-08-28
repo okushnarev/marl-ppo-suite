@@ -21,7 +21,7 @@ def parse_args():
     parser.add_argument("--cuda_deterministic",
                         action='store_false', default=True,
                         help="by default, make sure random seed effective. if set, bypass such function.")
-    parser.add_argument("--max_steps", type=int, default=1000000,
+    parser.add_argument("--max_steps", type=int, default=1_000_000,
                         help="Number of environment steps to train on")
 
     # Environment parameters

@@ -8,6 +8,8 @@ from envs import create_env
 from algos.light_mappo import LightMAPPO
 from utils.logger import Logger
 from utils.reward_normalization import EfficientStandardNormalizer, EMANormalizer
+
+
 # import wandb
 
 class LightMAPPORunner:
@@ -17,6 +19,7 @@ class LightMAPPORunner:
     This class manages the environment, agent, buffer, and training process,
     collecting trajectories and updating the policy.
     """
+
     def __init__(self, args):
         """
         Initialize the runner.
@@ -47,10 +50,10 @@ class LightMAPPORunner:
 
         # Initialize game stats
         self.game_stats = {
-            'battles_won': 0,
+            'battles_won':  0,
             'battles_game': 0,
-            'win_rate': 0,
-            'timeouts': 0
+            'win_rate':     0,
+            'timeouts':     0
         }
 
         # Create agent
@@ -58,10 +61,11 @@ class LightMAPPORunner:
 
         # Create buffer
         self.buffer = RolloutStorage(args.n_steps,
-            args.n_agents,
-            args.obs_dim,
-            args.action_dim,
-            args.state_dim)
+                                     args.n_agents,
+                                     args.obs_dim,
+                                     args.action_dim,
+                                     args.state_dim,
+                                     self.device)
 
         # Normalize rewards
         if args.use_reward_norm:
@@ -84,39 +88,38 @@ class LightMAPPORunner:
         self.logger = Logger(run_name=run_name, env=env_name, algo="Light_MAPPO")
         # Log hyperparameters
         self.logger.log_hyperparameters({
-            "env_name": env_name,
-            "map_name": args.map_name,
-            "difficulty": args.difficulty,
-            "use_agent_id": args.use_agent_id,
-            "death_masking": args.use_death_masking,
-            "lr": args.lr,
-            "optimizer_eps": args.optimizer_eps,
-            "use_linear_lr_decay": args.use_linear_lr_decay,
+            "env_name":                  env_name,
+            "map_name":                  args.map_name,
+            "difficulty":                args.difficulty,
+            "use_agent_id":              args.use_agent_id,
+            "death_masking":             args.use_death_masking,
+            "lr":                        args.lr,
+            "optimizer_eps":             args.optimizer_eps,
+            "use_linear_lr_decay":       args.use_linear_lr_decay,
             "use_feature_normalization": args.use_feature_normalization,
-            "use_value_norm": args.use_value_norm,
-            "use_reward_norm": args.use_reward_norm,
-            "actor_gain": args.actor_gain,
-            "hidden_size": args.hidden_size,
-            "fc_layers": args.fc_layers,
-            "n_steps": args.n_steps,
-            "num_mini_batch": args.num_mini_batch,
-            "ppo_epoch": args.ppo_epoch,
-            "gamma": args.gamma,
-            "gae_lambda": args.gae_lambda,
-            "clip_param": args.clip_param,
-            "use_clipped_value_loss": args.use_clipped_value_loss,
-            "use_huber_loss": args.use_huber_loss,
-            "huber_delta": args.huber_delta,
-            "entropy_coef": args.entropy_coef,
-            "use_gae": args.use_gae,
-            "use_proper_time_limits": args.use_proper_time_limits,
-            "use_max_grad_norm": args.use_max_grad_norm,
-            "max_grad_norm": args.max_grad_norm,
-            "use_eval": args.use_eval,
-            "eval_interval": args.eval_interval,
-            "eval_episodes": args.eval_episodes
+            "use_value_norm":            args.use_value_norm,
+            "use_reward_norm":           args.use_reward_norm,
+            "actor_gain":                args.actor_gain,
+            "hidden_size":               args.hidden_size,
+            "fc_layers":                 args.fc_layers,
+            "n_steps":                   args.n_steps,
+            "num_mini_batch":            args.num_mini_batch,
+            "ppo_epoch":                 args.ppo_epoch,
+            "gamma":                     args.gamma,
+            "gae_lambda":                args.gae_lambda,
+            "clip_param":                args.clip_param,
+            "use_clipped_value_loss":    args.use_clipped_value_loss,
+            "use_huber_loss":            args.use_huber_loss,
+            "huber_delta":               args.huber_delta,
+            "entropy_coef":              args.entropy_coef,
+            "use_gae":                   args.use_gae,
+            "use_proper_time_limits":    args.use_proper_time_limits,
+            "use_max_grad_norm":         args.use_max_grad_norm,
+            "max_grad_norm":             args.max_grad_norm,
+            "use_eval":                  args.use_eval,
+            "eval_interval":             args.eval_interval,
+            "eval_episodes":             args.eval_episodes
         })
-
 
     def run(self):
         """
@@ -144,7 +147,6 @@ class LightMAPPORunner:
                 self.evaluate(self.args.eval_episodes)
                 evaluate_num += 1
 
-
             # Collect trajectories
             steps = self.collect_rollouts()
             self.total_steps += steps
@@ -164,7 +166,6 @@ class LightMAPPORunner:
             self.logger.add_scalar('train/actor_grad_norm', train_info['actor_grad_norm'], self.total_steps)
             self.logger.add_scalar('train/critic_grad_norm', train_info['critic_grad_norm'], self.total_steps)
 
-
             # Reset buffer for next collection
             self.buffer.after_update()
 
@@ -177,7 +178,6 @@ class LightMAPPORunner:
         self.env.close()
         self.evaluate_env.close()
 
-
     def warmup(self):
         """
         Warmup the agent.
@@ -187,9 +187,9 @@ class LightMAPPORunner:
         obs, state = self.env.get_obs(), self.env.get_state()
 
         # Store initial observations
-        self.buffer.obs[0] = np.array(obs) # (n_agents, n_obs)
-        self.buffer.global_state[0] = np.array(state) # (n_state)
-        self.buffer.available_actions[0] = np.array(self.env.get_avail_actions()) # (n_agents, n_actions)
+        self.buffer.obs[0] = np.array(obs)  # (n_agents, n_obs)
+        self.buffer.global_state[0] = np.array(state)  # (n_state)
+        self.buffer.available_actions[0] = np.array(self.env.get_avail_actions())  # (n_agents, n_actions)
 
     def collect_rollouts(self):
         """
@@ -200,13 +200,13 @@ class LightMAPPORunner:
         """
         # Get initial observations
         obs, state = self.buffer.obs[0], self.buffer.global_state[0]
-        avail_actions = self.buffer.available_actions[0] # (n_agents, n_actions)
-        active_masks = self.buffer.active_masks[0] # (n_agents, )
+        avail_actions = self.buffer.available_actions[0]  # (n_agents, n_actions)
+        active_masks = self.buffer.active_masks[0]  # (n_agents, )
 
         # Rollout steps
         for step in range(self.args.n_steps):
             # Get actions and log probabilities
-            actions, action_log_probs  = self.agent.get_actions(
+            actions, action_log_probs = self.agent.get_actions(
                 obs, avail_actions, False)
             # Get values from critic
             values = self.agent.get_values(state, obs, active_masks)
@@ -248,23 +248,23 @@ class LightMAPPORunner:
 
             else:
                 is_truncated = False
-                active_masks = np.array(1-dones)
+                active_masks = np.array(1 - dones)
 
             obs, state = np.array(self.env.get_obs()), np.array(self.env.get_state())
-            avail_actions = np.array(self.env.get_avail_actions()) # (n_agents, n_actions)
+            avail_actions = np.array(self.env.get_avail_actions())  # (n_agents, n_actions)
 
             # Store trajectory in buffer
             self.buffer.insert(
-                obs=obs, #(n_agents, n_obs)
-                global_state=state, #(n_state)
-                actions=actions.squeeze(-1), #(n_agents, )
-                action_log_probs=action_log_probs.squeeze(-1), #(n_agents, )
-                values=values.squeeze(-1), #(n_agents, )
-                rewards=np.array([reward]).repeat(self.args.n_agents), #(n_agents, )
-                masks=np.array([1-done]).repeat(self.args.n_agents), #(n_agents, )
-                active_masks=active_masks, #(n_agents, )
-                truncates=np.array([is_truncated]).repeat(self.args.n_agents), #(n_agents, )
-                available_actions=avail_actions, # (n_agents, n_actions)
+                obs=obs,  # (n_agents, n_obs)
+                global_state=state,  # (n_state)
+                actions=actions.squeeze(-1),  # (n_agents, )
+                action_log_probs=action_log_probs.squeeze(-1),  # (n_agents, )
+                values=values.squeeze(-1),  # (n_agents, )
+                rewards=np.array([reward]).repeat(self.args.n_agents),  # (n_agents, )
+                masks=np.array([1 - done]).repeat(self.args.n_agents),  # (n_agents, )
+                active_masks=active_masks,  # (n_agents, )
+                truncates=np.array([is_truncated]).repeat(self.args.n_agents),  # (n_agents, )
+                available_actions=avail_actions,  # (n_agents, n_actions)
             )
 
         return self.args.n_steps
@@ -302,7 +302,6 @@ class LightMAPPORunner:
             # Reset environment
             self.evaluate_env.reset()
 
-
             # Episode tracking
             episode_reward = 0
             episode_length = 0
@@ -310,7 +309,7 @@ class LightMAPPORunner:
 
             while not episode_done:
                 obs = np.array(self.evaluate_env.get_obs())
-                avail_actions = np.array(self.evaluate_env.get_avail_actions()) # (n_agents, n_actions)
+                avail_actions = np.array(self.evaluate_env.get_avail_actions())  # (n_agents, n_actions)
 
                 # Get actions and log probabilities
                 actions, _ = self.agent.get_actions(
@@ -322,8 +321,7 @@ class LightMAPPORunner:
                 # Update episode rewards
                 episode_reward += reward
                 episode_length += 1
-                episode_done =  np.all(dones)
-
+                episode_done = np.all(dones)
 
             # Track win rate
             win = True if 'battle_won' in infos and infos['battle_won'] else False
@@ -348,10 +346,10 @@ class LightMAPPORunner:
         self.logger.add_scalar('eval/win_rate', win_rate, self.total_steps)
         self.logger.add_scalar('eval/length', mean_length, self.total_steps)
         # Print evaluation results
-        print(f"{self.total_steps}/{self.args.max_steps} Evaluation: Mean rewards: {mean_rewards:.2f},  Mean length: {mean_length:.2f}, Win rate: {win_rate:.2f}")
+        print(
+            f"{self.total_steps}/{self.args.max_steps} Evaluation: Mean rewards: {mean_rewards:.2f},  Mean length: {mean_length:.2f}, Win rate: {win_rate:.2f}")
 
         return mean_rewards, win_rate
-
 
     def _check_episode_outcome(self, latest_stats):
         """

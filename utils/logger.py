@@ -123,7 +123,7 @@ class Logger:
 
         if self.write_hyperparams:
             with open(f'{self.dir_name}/config.json', 'w') as f:
-                json.dump(hyperparams, f)
+                json.dump(hyperparams, f, indent=2)
 
     def add_run_command(self):
         """Log the terminal command used to start the run."""

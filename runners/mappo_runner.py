@@ -757,7 +757,6 @@ class MAPPO_SRMTRunner(MAPPORunner):
                 self.envs.share_observation_space,
                 self.device)
 
-    @property
     def collect_rollouts(self):
         """
         Collect trajectories by interacting with the environment.
@@ -860,11 +859,11 @@ class MAPPO_SRMTRunner(MAPPORunner):
             if dead_agents.any():
                 dead_agents_idx = np.where(dead_agents == 1)
                 if self.args.srmt_core:
-                    history_seq = self.buffer.history_seq[step][dead_agents_idx]
+                    history_seq[dead_agents_idx] = self.buffer.history_seq[step][dead_agents_idx]
                     if self.args.use_agent_memory:
-                        agent_memory = self.buffer.agent_memory[step][dead_agents_idx]
+                        agent_memory[dead_agents_idx] = self.buffer.agent_memory[step][dead_agents_idx]
                     if self.args.use_global_memory:
-                        global_memory = self.buffer.global_memory[step][dead_agents_idx]
+                        global_memory[dead_agents_idx] = self.buffer.global_memory[step][dead_agents_idx]
 
             # Update episode stats
             self.episode_length += 1

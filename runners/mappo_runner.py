@@ -855,7 +855,7 @@ class MAPPO_SRMTRunner(MAPPORunner):
                     global_memory = unflatten_first_dim(global_memory_t, shape).cpu().numpy()
 
             # Freeze memory for dead agents
-            dead_agents = np.array([info['dead_agents'] for info in infos])
+            dead_agents = np.array([info['dead_agents'] for info in infos]) if 'dead_agents' in infos[0] else np.zeros(1)
             if dead_agents.any():
                 dead_agents_idx = np.where(dead_agents == 1)
                 if self.args.srmt_core:

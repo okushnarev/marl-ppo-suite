@@ -27,3 +27,4 @@ dependencies:
       - python-dotenv
       - ray
       - huggingface_hub
+      - transformers==4.43.3

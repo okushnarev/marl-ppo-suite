@@ -7,9 +7,12 @@ Unified Code for the networks of the mappo implementation:
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical
+
+from cores.srmt_core import TransformerCore
 from networks.modules.rnn import GRUModule
 
 from utils.env_tools import get_shape_from_obs_space
+
 
 def _orthogonal_init(layer, gain=1.0, bias_const=0.0):
     """Enhanced orthogonal initialization with configurable gain and bias."""
@@ -20,10 +23,12 @@ def _orthogonal_init(layer, gain=1.0, bias_const=0.0):
         nn.init.constant_(layer.weight, 1.0)
         nn.init.constant_(layer.bias, 0.0)
 
+
 class Actor(nn.Module):
     """
     Actor network for MAPPO.
     """
+
     def __init__(self, args, obs_space, action_space, device=torch.device("cpu")):
         """Initialize the actor network.
 
@@ -68,6 +73,7 @@ class Actor(nn.Module):
             in_dim = self.hidden_size
         self.mlp = nn.Sequential(*layers)
 
+        # SRMT Goes Here
         # RNN Layer (GRU)
         if self.use_rnn:
             self.rnn = GRUModule(self.hidden_size,
@@ -79,7 +85,6 @@ class Actor(nn.Module):
 
         self.apply(lambda module: _orthogonal_init(module, gain=nn.init.calculate_gain('relu')))
         _orthogonal_init(self.output, gain=self.actor_gain)
-
 
         self.to(device)
 
@@ -146,8 +151,8 @@ class Actor(nn.Module):
         else:
             # Convert logits to action probabilities
             action_dist = Categorical(logits=logits)
-            actions = action_dist.sample().unsqueeze(-1) # (batch_size, 1)
-            action_log_probs = action_dist.log_prob(actions.squeeze(-1)).unsqueeze(-1) # (batch_size, 1)
+            actions = action_dist.sample().unsqueeze(-1)  # (batch_size, 1)
+            action_log_probs = action_dist.log_prob(actions.squeeze(-1)).unsqueeze(-1)  # (batch_size, 1)
 
         return actions, action_log_probs, rnn_states_out
 
@@ -175,91 +180,213 @@ class Actor(nn.Module):
             logits[available_actions == 0] = -1e10
 
         action_dist = Categorical(logits=logits)
-        action_log_probs = action_dist.log_prob(actions.squeeze(-1)).unsqueeze(-1) # [seq_len, batch_size, 1]
-        dist_entropy = action_dist.entropy().unsqueeze(-1) # [seq_len, batch_size, 1]
+        action_log_probs = action_dist.log_prob(actions.squeeze(-1)).unsqueeze(-1)  # [seq_len, batch_size, 1]
+        dist_entropy = action_dist.entropy().unsqueeze(-1)  # [seq_len, batch_size, 1]
 
         return action_log_probs, dist_entropy, rnn_states_out
 
+
+class ActorSRMT(Actor):
+    def __init__(self, args, obs_space, action_space, device=torch.device("cpu")):
+        super().__init__(args, obs_space, action_space, device=device)
+        self.use_rnn = False
+        self.rnn = None
+
+        # SRMT specific params
+        self.srmt_core = args.srmt_core
+        self.use_agent_memory = args.use_agent_memory
+        self.use_global_memory = args.use_global_memory
+        self.data_chunk_length = args.data_chunk_length
+
+        self.core = TransformerCore(args, self.hidden_size, device)
+
+    def forward(self, x, rnn_states=None, masks=None, history_seq=None, agent_memory=None, global_memory=None):
+        """
+        Forward pass of the actor network.
+        Batch size is n_agents * n_rollout_threads
+
+        Args:
+            x (torch.Tensor): Input tensor (batch_size, input_dim) or (seq_len, batch_size, input_dim)
+            rnn_states (torch.Tensor, optional): RNN hidden state tensor. Required when use_rnn=True,
+                                            ignored otherwise. Shape: (batch_size, num_layers, hidden_size)
+            masks (torch.Tensor, optional): Mask tensor. Required when use_rnn=True, ignored otherwise.
+                                       Shape: (batch_size, 1) or (seq_len, batch_size, 1)
+        Returns:
+            logits: action logits
+            rnn_states_out: updated RNN states if use_rnn=True, None otherwise
+        """
+
+        if self.use_rnn and (rnn_states is None or masks is None):
+            raise ValueError("rnn_states and masks must be provided when use_rnn=True")
+
+        if self.use_feature_normalization:
+            x = self.feature_norm(x)
+
+        x = self.mlp(x)
+
+        additional_outputs = {}
+        if self.srmt_core:
+            x, _, additional_outputs = self.core(x, rnn_states, history_seq, agent_memory, global_memory)
+
+        if self.use_rnn:
+            x, rnn_states_out = self.rnn(x, rnn_states, masks)
+        else:
+            rnn_states_out = None
+        logits = self.output(x)  # [seq_len, batch_size, action_dim]
+
+        return logits, rnn_states_out, additional_outputs
+
+    def get_actions(self, obs, rnn_states=None, masks=None, available_actions=None, history_seq=None,
+                    agent_memory=None, global_memory=None, deterministic=False):
+        """Get actions from the actor network.
+        Batch size is n_agents * n_rollout_threads
+
+        Args:
+            obs: tensor of shape [batch_size, input_dim]
+            rnn_states: tensor of shape [batch_size, num_layers, rnn_hidden_size],
+                required when use_rnn=True, can be None otherwise
+            masks: tensor of shape [batch_size, 1], required when use_rnn=True,
+                can be None otherwise
+            available_actions: tensor of shape [batch_size, action_dim]
+            deterministic: bool, whether to use deterministic actions
+
+        Returns:
+            actions: tensor of shape [n_agents, 1]
+            action_log_probs: tensor of shape [batch_size, 1]
+            next_rnn_states: tensor of shape [batch_size, num_layers, rnn_hidden_size]
+                if use_rnn=True, None otherwise
+        """
+        # Forward pass to get logits
+        logits, rnn_states_out, additional_outputs = self.forward(obs, rnn_states, masks, history_seq, agent_memory, global_memory)
+
+        # Apply mask for available actions if provided
+        if available_actions is not None:
+            # Set unavailable actions to have a very small probability
+            logits[available_actions == 0] = -1e10
+
+        if deterministic:
+            actions = torch.argmax(logits, dim=-1, keepdim=True)
+            action_log_probs = None
+        else:
+            # Convert logits to action probabilities
+            action_dist = Categorical(logits=logits)
+            actions = action_dist.sample().unsqueeze(-1)  # (batch_size, 1)
+            action_log_probs = action_dist.log_prob(actions.squeeze(-1)).unsqueeze(-1)  # (batch_size, 1)
+
+        return actions, action_log_probs, rnn_states_out, additional_outputs
+
+    def evaluate_actions(self, obs, actions, rnn_states=None, masks=None, available_actions=None, history_seq=None,
+                         agent_memory=None, global_memory=None):
+        """Evaluate actions for training.
+
+        Args:
+            obs_seq: tensor of shape [seq_len, batch_size, input_dim] or [batch_size, input_dim]
+            actions: tensor of shape [seq_len, batch_size, 1] or [batch_size, 1]
+            rnn_states: tensor of shape [batch_size, num_layers, hidden_size] - initial hidden state
+                required when use_rnn=True, can be None otherwise
+            masks: tensor of shape [seq_len, batch_size, 1] or [batch_size, 1]
+                required when use_rnn=True, can be None otherwise
+            available_actions: tensor of shape [seq_len, batch_size, action_dim] or [batch_size, action_dim]
+                can be None, when all actions are available
+        Returns:
+            action_log_probs: log probabilities of actions [seq_len,batch_size, 1] or [batch_size, 1]
+            dist_entropy: entropy of action distribution [seq_len, batch_size, 1] or [batch_size, 1]
+            rnn_states_out: updated RNN states [batch_size, num_layers, hidden_size] or None
+        """
+        logits, rnn_states_out, additional_outputs = self.forward(obs, rnn_states, masks, history_seq, agent_memory, global_memory)
+
+        if available_actions is not None:
+            # Set unavailable actions to have a very small probability
+            logits[available_actions == 0] = -1e10
+
+        action_dist = Categorical(logits=logits)
+        action_log_probs = action_dist.log_prob(actions.squeeze(-1)).unsqueeze(-1)  # [seq_len, batch_size, 1]
+        dist_entropy = action_dist.entropy().unsqueeze(-1)  # [seq_len, batch_size, 1]
+
+        return action_log_probs, dist_entropy, rnn_states_out
+
+
 class Critic(nn.Module):
+    """
+    Critic network for MAPPO.
+    """
+
+    def __init__(self, args, centralized_obs_space, device=torch.device("cpu")):
+        """Initialize the actor network.
+
+        Args:
+            args (argparse.Namespace): Arguments containing training hyperparameters
+            centralized_obs_space (gymnasium.spaces.Box): Centralized observation space for critic (Box)
+            device (torch.device): Device to run the agent on
         """
-        Critic network for MAPPO.
+        super(Critic, self).__init__()
+        self.hidden_size = args.hidden_size
+        self.use_rnn = args.use_rnn
+        self.use_feature_normalization = args.use_feature_normalization
+        self.rnn_layers = args.rnn_layers
+        self.fc_layers = args.fc_layers
+
+        cent_obs_shape = get_shape_from_obs_space(centralized_obs_space)
+        cent_obs_dim = cent_obs_shape[0]
+
+        # Feature Normalization
+        if self.use_feature_normalization:
+            self.feature_norm = nn.LayerNorm(cent_obs_dim)
+
+        # MLP Layers
+        layers = []
+        in_dim = cent_obs_dim
+        for _ in range(self.fc_layers):
+            layers += [
+                nn.Linear(in_dim, self.hidden_size),
+                nn.ReLU(),
+                nn.LayerNorm(self.hidden_size),
+            ]
+            in_dim = self.hidden_size
+        self.mlp = nn.Sequential(*layers)
+
+        # RNN Layer (GRU)
+        if self.use_rnn:
+            self.rnn = GRUModule(self.hidden_size,
+                                 self.hidden_size,
+                                 num_layers=self.rnn_layers)
+
+        # Output Layer
+        self.output = nn.Linear(self.hidden_size, 1)
+
+        # Initialize weights
+        self.apply(lambda module: _orthogonal_init(module, gain=nn.init.calculate_gain('relu')))
+        _orthogonal_init(self.output, gain=1.0)
+
+        self.to(device)
+
+    def forward(self, x, rnn_states=None, masks=None):
+        """Forward pass for critic network.
+
+        Args:
+            x (torch.Tensor): Input tensor (batch_size, input_dim) or (seq_len, batch_size, input_dim)
+            rnn_states (torch.Tensor, optional): RNN hidden state tensor. Required when use_rnn=True,
+                ignored when use_rnn=False. Shape: (batch_size, num_layers, hidden_size)
+            masks (torch.Tensor, optional): Mask tensor. Required when use_rnn=True,
+                ignored when use_rnn=False. Shape: (batch_size, 1) or (seq_len, batch_size, 1)
+        Returns:
+            values (torch.Tensor): Value predictions, shape (batch_size, 1) or (seq_len, batch_size, 1).
+            rnn_states_out (torch.Tensor): updated RNN states if use_rnn=True, None otherwise
         """
-        def __init__(self, args, centralized_obs_space, device=torch.device("cpu")):
-            """Initialize the actor network.
+        # Validate inputs when RNN is used
+        if self.use_rnn and (rnn_states is None or masks is None):
+            raise ValueError("rnn_states and masks must be provided when use_rnn=True")
 
-            Args:
-                args (argparse.Namespace): Arguments containing training hyperparameters
-                centralized_obs_space (gymnasium.spaces.Box): Centralized observation space for critic (Box)
-                device (torch.device): Device to run the agent on
-            """
-            super(Critic, self).__init__()
-            self.hidden_size = args.hidden_size
-            self.use_rnn = args.use_rnn
-            self.use_feature_normalization = args.use_feature_normalization
-            self.rnn_layers = args.rnn_layers
-            self.fc_layers = args.fc_layers
+        if self.use_feature_normalization:
+            x = self.feature_norm(x)
 
-            cent_obs_shape = get_shape_from_obs_space(centralized_obs_space)
-            cent_obs_dim = cent_obs_shape[0]
+        x = self.mlp(x)
 
-            # Feature Normalization
-            if self.use_feature_normalization:
-                self.feature_norm = nn.LayerNorm(cent_obs_dim)
+        if self.use_rnn:
+            x, rnn_states_out = self.rnn(x, rnn_states, masks)
+        else:
+            rnn_states_out = None
 
-            # MLP Layers
-            layers = []
-            in_dim = cent_obs_dim
-            for _ in range(self.fc_layers):
-                layers += [
-                    nn.Linear(in_dim, self.hidden_size),
-                    nn.ReLU(),
-                    nn.LayerNorm(self.hidden_size),
-                ]
-                in_dim = self.hidden_size
-            self.mlp = nn.Sequential(*layers)
+        values = self.output(x)  # [seq_len, batch_size, 1]
 
-            # RNN Layer (GRU)
-            if self.use_rnn:
-                self.rnn = GRUModule(self.hidden_size,
-                                     self.hidden_size,
-                                     num_layers=self.rnn_layers)
-
-            # Output Layer
-            self.output = nn.Linear(self.hidden_size, 1)
-
-            # Initialize weights
-            self.apply(lambda module: _orthogonal_init(module, gain=nn.init.calculate_gain('relu')))
-            _orthogonal_init(self.output, gain=1.0)
-
-            self.to(device)
-
-        def forward(self, x, rnn_states=None, masks=None):
-            """Forward pass for critic network.
-
-            Args:
-                x (torch.Tensor): Input tensor (batch_size, input_dim) or (seq_len, batch_size, input_dim)
-                rnn_states (torch.Tensor, optional): RNN hidden state tensor. Required when use_rnn=True,
-                    ignored when use_rnn=False. Shape: (batch_size, num_layers, hidden_size)
-                masks (torch.Tensor, optional): Mask tensor. Required when use_rnn=True,
-                    ignored when use_rnn=False. Shape: (batch_size, 1) or (seq_len, batch_size, 1)
-            Returns:
-                values (torch.Tensor): Value predictions, shape (batch_size, 1) or (seq_len, batch_size, 1).
-                rnn_states_out (torch.Tensor): updated RNN states if use_rnn=True, None otherwise
-            """
-            # Validate inputs when RNN is used
-            if self.use_rnn and (rnn_states is None or masks is None):
-                raise ValueError("rnn_states and masks must be provided when use_rnn=True")
-
-            if self.use_feature_normalization:
-                x = self.feature_norm(x)
-
-            x = self.mlp(x)
-
-            if self.use_rnn:
-                x, rnn_states_out = self.rnn(x, rnn_states, masks)
-            else:
-                rnn_states_out = None
-
-            values = self.output(x)  # [seq_len, batch_size, 1]
-
-            return values, rnn_states_out
+        return values, rnn_states_out

@@ -1,3 +1,4 @@
+import json
 import sys
 import os
 from datetime import datetime
@@ -20,7 +21,8 @@ except ImportError:
 try:
     import wandb
 except ImportError:
-    wandb = None # type: ignore[misc, assignment]
+    wandb = None  # type: ignore[misc, assignment]
+
 
 class Logger:
     """
@@ -35,22 +37,23 @@ class Logger:
         use_wandb (bool): Whether to use Weights & Biases for logging. Defaults to False.
         config (dict): Configuration dictionary to log. Defaults to None.
     """
+
     def __init__(
-        self,
-        run_name: str = datetime.now().strftime("%Y-%m-%d_%H%M%S"),
-        runs_root: str | None = None,        
-        algo: str = "sac",
-        env: str = "Env",
-        save_csv: bool = False,
-        use_wandb: bool = False,
-        config: dict | None = None,
+            self,
+            run_name: str = datetime.now().strftime("%Y-%m-%d_%H%M%S"),
+            runs_root: str | None = None,
+            algo: str = "sac",
+            env: str = "Env",
+            save_csv: bool = False,
+            use_wandb: bool = False,
+            config: dict | None = None,
     ):
         # resolve the root once per instantiation
         if runs_root is None:
             runs_root = os.getenv("RUNS_DIR", "runs")
 
-        self.run_name = run_name
-        self.dir_name = os.path.join(runs_root, env, algo, run_name)
+        self.run_name = config['exp_name'] or run_name
+        self.dir_name = os.path.join(runs_root, env, algo, self.run_name)
         os.makedirs(self.dir_name, exist_ok=True)
         self.writer = SummaryWriter(self.dir_name)
         self.name_to_values = {}  # Stores deque of recent values for smoothing
@@ -59,33 +62,34 @@ class Logger:
         self.last_csv_save = time.time()
         self.save_csv = save_csv
         self.save_every = 10 * 60  # Save CSV every 10 seconds
+        self.write_hyperparams = config['write_hyperparams'] or False
 
         if self.save_csv:
             self._data = {}  # {step: {key: val, ...}, ...} for CSV logging
-            
-        self.use_wandb = use_wandb and (wandb is not None) # Ensure wandb is imported
+
+        self.use_wandb = use_wandb and (wandb is not None)  # Ensure wandb is imported
         if self.use_wandb:
-            display_name = f"{run_name}"  # e.g., "MAPPO_lr0.0005_nenvs4..."
+            display_name = f"{self.run_name}"  # e.g., "MAPPO_lr0.0005_nenvs4..."
             wandb_config = load_wandb_config()
 
             print(f"WANDB_ENTITY: {wandb_config['entity']}")
             print(f"WANDB_PROJECT: {wandb_config['project']}")
 
             wandb.login(key=wandb_config["api_key"])
-            
+
             self.wb = wandb.init(
                 name=display_name,
                 group=env,
                 project=wandb_config["project"],
                 entity=wandb_config["entity"],
-                dir = self.dir_name, #keeps artifacts in the same folder
-                config=config, #hyper-parameters in UI
-                sync_tensorboard=False, # one-line TB-sync
+                dir=self.dir_name,  # keeps artifacts in the same folder
+                config=config,  # hyper-parameters in UI
+                sync_tensorboard=False,  # one-line TB-sync
                 resume="allow"  # Allow resuming if needed
             )
 
             self._last_model_version = {}
-        
+
         if config is not None:
             self.log_all_hyperparameters(config)
 
@@ -101,21 +105,25 @@ class Logger:
             "|param|value|\n|-|-|\n%s"
             % ("\n".join([f"|{key}|{value}|" for key, value in hyperparams.items()])),
         )
-    
+
     def log_hyperparameters(self, hyperparams: dict):
         """Pretty print hyperparameters in a table format."""
         hyper_param_space, value_space = 30, 40
         format_str = "| {:<" + f"{hyper_param_space}" + "} | {:<" + f"{value_space}" + "}|"
         hbar = "-" * (hyper_param_space + value_space + 6)
-    
+
         print(hbar)
         print(format_str.format("Hyperparams", "Values"))
         print(hbar)
-    
+
         for key, value in hyperparams.items():
             print(format_str.format(str(key), str(value)))
-    
+
         print(hbar)
+
+        if self.write_hyperparams:
+            with open(f'{self.dir_name}/config.json', 'w') as f:
+                json.dump(hyperparams, f)
 
     def add_run_command(self):
         """Log the terminal command used to start the run."""
@@ -123,7 +131,7 @@ class Logger:
         self.writer.add_text("terminal", cmd)
         with open(os.path.join(self.dir_name, "cmd.txt"), "w") as f:
             f.write(cmd)
-    
+
     def log_training(self, data: dict, print_to_stdout: bool = False):
         """Log training metrics to TensorBoard and optionally to CSV."""
         for key, val in data.items():
@@ -156,12 +164,12 @@ class Logger:
             if step not in self._data:
                 self._data[step] = {}
             self._data[step][key] = val  # Store raw value
-            
+
             # Periodically save CSV
             if time.time() - self.last_csv_save > self.save_every:
                 self.save2csv()
                 self.last_csv_save = time.time()
-    
+
     def add_video(self, tag: str, frames: Union[np.ndarray, torch.Tensor],
                   step: int, fps: int = 30):
         """
@@ -220,11 +228,11 @@ class Logger:
         if self.use_wandb:
             # pick first clip
             clip = arr[0]  # (T, H, W, C)
-            out = os.path.join(self.dir_name, f"{tag.replace('/','_')}_{step}.mp4")
+            out = os.path.join(self.dir_name, f"{tag.replace('/', '_')}_{step}.mp4")
             # enforce macro_block_size=1 to avoid the 16×16 resize warning
-            with imageio.get_writer(out, 
-                                    fps=fps, 
-                                    codec="libx264", 
+            with imageio.get_writer(out,
+                                    fps=fps,
+                                    codec="libx264",
                                     macro_block_size=1,
                                     quality=5) as w:
                 for frame in clip:
@@ -233,11 +241,11 @@ class Logger:
             self.wb.log({tag: video_obj}, step=step)
 
     def log_model(self,
-                file_path: str,
-                name: str = "best-model",
-                artifact_type: str = "model",
-                alias: str = 'latest',
-                metadata: dict = None,):
+                  file_path: str,
+                  name: str = "best-model",
+                  artifact_type: str = "model",
+                  alias: str = 'latest',
+                  metadata: dict = None, ):
         """
         Upload a model checkpoint as a W&B Artifact.
         
@@ -265,8 +273,8 @@ class Logger:
         # Log the artifact and optionally attach an alias
         logged = self.wb.log_artifact(artifact, aliases=[alias] if alias else None)
         if alias:
-            logged.wait()               # ensure it’s uploaded
-        
+            logged.wait()  # ensure it’s uploaded
+
         # Track the version for cleanup
         if alias == 'latest':
             previous_version = self._last_model_version.get(unique_name, None)
@@ -274,13 +282,13 @@ class Logger:
             if previous_version is not None:
                 try:
                     api = wandb.Api()
-                    entity  = self.wb.entity
+                    entity = self.wb.entity
                     project = self.wb.project
                     artifact_path = f"{entity}/{project}/{unique_name}:{previous_version}"
                     api.artifact(artifact_path).delete()
                 except Exception as e:
                     print(f"Warning: failed to delete previous artifact {artifact_path}: {e}")
-            
+
             # record this version
             self._last_model_version[unique_name] = logged.version
 
@@ -288,10 +296,10 @@ class Logger:
         """Save logged data to a CSV file."""
         if not self.save_csv or not self._data:
             return
-        
+
         if file_name is None:
             file_name = os.path.join(self.dir_name, "progress.csv")
-        
+
         # Convert to DataFrame
         steps = sorted(self._data.keys())
         rows = []
@@ -300,13 +308,13 @@ class Logger:
             row.update(self._data[step])
             rows.append(row)
         df = pd.DataFrame(rows)
-        
+
         # Ensure 'global_step' is first column
         cols = ['global_step'] + [c for c in df.columns if c != 'global_step']
         df = df[cols]
-        
+
         df.to_csv(file_name, index=False)
-    
+
     def close(self):
         """Close the TensorBoard writer and save CSV."""
         self.writer.close()
@@ -317,14 +325,14 @@ class Logger:
             self.wb.finish()
         if self.save_csv:
             self.save2csv()
-    
+
     def log_stdout(self):
         """Print smoothed metrics to stdout."""
         results = {k: np.mean(v) for k, v in self.name_to_values.items()}
         results['step'] = self.current_env_step
         # results['fps'] = self.fps()
         pprint(results)
-    
+
     def fps(self) -> int:
         """Calculate frames per second (steps per second)."""
         elapsed = time.time() - self.start_time
@@ -336,7 +344,7 @@ def pprint(dict_data):
     key_space, val_space = 40, 40
     border = "-" * (key_space + val_space + 5)
     row_fmt = f"| {{:<{key_space}}} | {{:<{val_space}}}|"
-    
+
     print(f"\n{border}")
     for k, v in dict_data.items():
         k_str = truncate_str(str(k), key_space)
@@ -347,4 +355,4 @@ def pprint(dict_data):
 
 def truncate_str(s: str, max_len: int) -> str:
     """Truncate string with ellipsis if exceeds max length."""
-    return s if len(s) <= max_len else s[:max_len-3] + "..."
+    return s if len(s) <= max_len else s[:max_len - 3] + "..."

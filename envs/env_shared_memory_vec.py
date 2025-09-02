@@ -1,7 +1,7 @@
 import numpy as np
 import multiprocessing as mp
 from multiprocessing import Process, Pipe
-from env_vectorization import VecEnv, CloudpickleWrapper, tile_images
+from envs.env_vectorization import VecEnv, CloudpickleWrapper, tile_images
 import multiprocessing.shared_memory as shared_memory
 from gymnasium.spaces import Discrete
 import copy

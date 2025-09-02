@@ -346,10 +346,10 @@ class SubprocVecEnv(VecEnv):
 
         # Get spaces
         self.remotes[0].send(("get_spaces", None))
-        observation_space, share_observation_space, action_space = self.remotes[0].recv()
+        self.observation_space, self.share_observation_space, self.action_space = self.remotes[0].recv()
 
         VecEnv.__init__(
-            self, len(env_fns), observation_space, share_observation_space, action_space,
+            self, len(env_fns), self.observation_space, self.share_observation_space, self.action_space,
             self.n_agents, self.episode_limit
         )
 

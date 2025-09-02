@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import gymnasium
 
-from networks.mappo_nets import Actor, Critic
+from networks.mappo_nets import Actor, ActorSRMT, Critic
 from utils.scheduler import LinearScheduler
 from utils.value_normalizers import create_value_normalizer
 from typing import Optional
@@ -75,6 +75,7 @@ class MAPPO:
         self.num_mini_batch = self.args.num_mini_batch
         self.data_chunk_length = self.args.data_chunk_length
         self.entropy_coef = self.args.entropy_coef
+        self.critic_coef = self.args.critic_coef
         self.max_grad_norm = self.args.max_grad_norm
         self.use_max_grad_norm = self.args.use_max_grad_norm
         self.use_clipped_value_loss = self.args.use_clipped_value_loss
@@ -292,12 +293,12 @@ class MAPPO:
             else:
                 value_losses = (values - returns).pow(2)
                 value_losses_clipped = (value_pred_clipped - returns).pow(2)
-                value_loss = 0.5 * torch.max(value_losses, value_losses_clipped).mean()
+                value_loss = self.critic_coef * torch.max(value_losses, value_losses_clipped).mean()
         else:
             if self.use_huber_loss:
                 value_loss = F.huber_loss(values, returns, delta=self.huber_delta, reduction='mean')
             else:
-                value_loss = 0.5 * (values - returns).pow(2).mean()
+                value_loss = self.critic_coef * (values - returns).pow(2).mean()
 
         return value_loss
 
@@ -462,3 +463,162 @@ class MAPPO:
         if os.path.exists(args_path):
             args_dict = torch.load(args_path, weights_only=False)
             self.args = args_dict['args']
+
+
+class MAPPO_SRMT(MAPPO):
+    def _init_networks(self,
+                       obs_space: gymnasium.spaces.Box,
+                       state_space: gymnasium.spaces.Box,
+                       action_space: gymnasium.spaces.Discrete) -> None:
+        super()._init_networks(obs_space, state_space, action_space)
+
+        self.actor = ActorSRMT(
+            self.args,
+            obs_space,
+            action_space,
+            self.device
+        )
+
+        self.actor_optimizer = optim.Adam(
+            self.actor.parameters(),
+            lr=self.lr,
+            eps=self.args.optimizer_eps
+        )
+
+    def get_actions(
+            self,
+            obs: torch.Tensor,
+            rnn_states: torch.Tensor = None,
+            masks: torch.Tensor = None,
+            available_actions: torch.Tensor = None,
+            history_seq: torch.Tensor = None,
+            agent_memory: torch.Tensor = None,
+            global_memory: torch.Tensor = None,
+            deterministic: bool = False,
+    ):
+        with torch.no_grad():
+            # Handle RNN states and masks based on whether RNN is enabled
+            if self.use_rnn:
+                if rnn_states is None or masks is None:
+                    raise ValueError("rnn_states and masks must be provided when RNN is enabled")
+
+            # Get actions
+            actions, action_log_probs, rnn_states_out, additional_outputs = self.actor.get_actions(
+                obs, rnn_states, masks, available_actions, history_seq, agent_memory, global_memory, deterministic
+            )
+
+        return actions, action_log_probs, rnn_states_out, *additional_outputs.values()
+
+    def evaluate_actions(self, state, obs, actions, available_actions, masks, active_masks, actor_h0=None,
+                         critic_h0=None, history_seq=None, agent_memory=None, global_memory=None):
+        """
+        Evaluate actions for training.
+
+        Args:
+            state (torch.Tensor): State tensor #(seq_len, batch_size, n_state) or #(batch_size, n_state)
+            obs (torch.Tensor): Observation tensor #(seq_len, batch_size, n_obs) or #(batch_size, n_obs)
+            actions (torch.Tensor): Actions tensor #(seq_len, batch_size, 1) or #(batch_size, 1)
+            available_actions (torch.Tensor): Available actions tensor #(seq_len, batch_size, action_dim) or #(batch_size, action_dim)
+            masks (torch.Tensor): Masks tensor #(seq_len, batch_size, 1) or #(batch_size, 1)
+            active_masks (torch.Tensor): Active masks tensor #(seq_len, batch_size, 1) or #(batch_size, 1)
+            actor_h0 (torch.Tensor): Initial actor RNN states tensor #(num_layers, batch_size, hidden_size) or None
+            critic_h0 (torch.Tensor): Initial critic RNN states tensor #(num_layers, batch_size, hidden_size) or None
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: (values, action_log_probs, dist_entropy)
+        """
+        action_log_probs, dist_entropy, _ = self.actor.evaluate_actions(
+            obs,
+            actions,
+            actor_h0,
+            masks,
+            available_actions,
+            history_seq,
+            agent_memory,
+            global_memory,
+        )
+
+        if self.state_type == "AS":
+            state = state * active_masks  # (seq_len, batch_size, n_state) # Mask out inactive agents
+            # Concatenate observation and state spaces for AS state type
+            state = torch.cat([obs, state], dim=-1)
+
+        values, _ = self.critic(state, critic_h0, masks)
+        return values, action_log_probs, dist_entropy
+
+    def update(self, mini_batch):
+        """
+        Update policy using a mini-batch of experiences.
+
+        Args:
+            mini_batch (dict): Dictionary containing mini-batch data
+
+        Returns:
+            tuple: (value_loss, policy_loss, dist_entropy)
+        """
+        metrics = {}
+        # Extract data from mini-batch
+        (obs_batch,
+         global_state_batch,
+         actor_h0_batch,
+         critic_h0_batch,
+         actions_batch,
+         values_batch,
+         returns_batch,
+         masks_batch,
+         active_masks_batch,
+         old_action_log_probs_batch,
+         advantages_batch,
+         available_actions_batch,
+         history_seq,
+         agent_memory,
+         global_memory,
+         ) = mini_batch
+
+        # Evaluate actions
+        values, action_log_probs, dist_entropy = self.evaluate_actions(
+            global_state_batch, obs_batch, actions_batch,
+            available_actions_batch, masks_batch, active_masks_batch,
+            actor_h0_batch, critic_h0_batch,
+            history_seq, agent_memory, global_memory,
+        )
+
+        # Calculate PPO ratio and KL divergence
+        ratio = torch.exp(action_log_probs - old_action_log_probs_batch)
+        approx_kl = ((ratio - 1) - torch.log(ratio)).mean().item()
+        clip_ratio = (torch.abs(ratio - 1) > self.clip_param).float().mean().item()
+
+        # Actor Loss
+        surr1 = ratio * advantages_batch
+        surr2 = torch.clamp(ratio, 1.0 - self.clip_param, 1.0 + self.clip_param) * advantages_batch
+        policy_loss = -torch.min(surr1, surr2).mean()
+        entropy_loss = -self.entropy_coef * torch.mean(dist_entropy)
+        actor_loss = policy_loss + entropy_loss
+
+        # Update actor
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        actor_grad_norm = self._clip_gradients(self.actor)
+        self.actor_optimizer.step()
+
+        #  Critic loss
+        critic_loss = self.compute_value_loss(values, values_batch, returns_batch)
+
+        # Update Critic
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        critic_grad_norm = self._clip_gradients(self.critic)
+        self.critic_optimizer.step()
+
+        # Update metrics
+        metrics.update({
+            'critic_loss':      critic_loss.item(),
+            'actor_loss':       actor_loss.item(),
+            'entropy_loss':     entropy_loss.item(),
+            'approx_kl':        approx_kl,
+            'clip_ratio':       clip_ratio,
+            'actor_grad_norm':  actor_grad_norm,
+            'critic_grad_norm': critic_grad_norm
+        })
+
+        return metrics

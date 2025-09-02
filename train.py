@@ -1,5 +1,7 @@
 import os
 
+from runners.ippo_runner import IPPORunner, IPPO_SRMTRunner
+
 if "MKL_NUM_THREADS" not in os.environ:
     os.environ["MKL_NUM_THREADS"] = "1"
 if "OMP_NUM_THREADS" not in os.environ:
@@ -8,7 +10,7 @@ if "OMP_NUM_THREADS" not in os.environ:
 import argparse
 import torch
 
-from runners.mappo_runner import MAPPORunner
+from runners.mappo_runner import MAPPORunner, MAPPO_SRMTRunner
 from runners.happo_runner import HAPPORunner
 from utils.env_tools import set_global_seeds
 from utils.sc2_utils import kill_sc2_processes
@@ -36,7 +38,7 @@ def parse_args():
 
     # Algorithm parameters
     parser.add_argument("--algo", type=str, default="mappo",
-                        choices=["mappo", "happo"],
+                        choices=["mappo", "happo", "ippo"],
                         help="Which algorithm to use")
     parser.add_argument("--seed", type=int, default=1, help="Random seed for numpy/torch")
     parser.add_argument("--cuda", action='store_false', default=True,
@@ -46,7 +48,7 @@ def parse_args():
                         help="by default, make sure random seed effective. if set, bypass such function.")
     parser.add_argument("--torch_threads", type=int, default=None,
                         help="Set PyTorch/OMP/MKL threads (default None))")
-    parser.add_argument("--max_steps", type=int, default=1000000,
+    parser.add_argument("--max_steps", type=int, default=1_000_000,
                         help="Number of environment steps to train on")
     parser.add_argument("--n_rollout_threads", type=int, default=8,
                         help="Number of parallel environments (default: 8)")
@@ -107,6 +109,13 @@ def parse_args():
     parser.add_argument("--reward_norm_type", type=str, default="efficient", choices=["efficient", "ema"],
                         help="Type of reward normalizer to use: 'efficient' (standard) or 'ema' (exponential moving average)")
 
+    # SRMT specific parameters
+    parser.add_argument("--srmt_core", action="store_true", default=False,
+                        help="Use SRMT core in Actor (default: False)")
+    parser.add_argument("--use_agent_memory", action="store_true", default=False,
+                        help="Use agent memory in SRMT core (default: False)")
+    parser.add_argument("--use_global_memory", action="store_true", default=False,
+                        help="Use global memory in SRMT core (default: False)")
 
     # PPO parameters
     parser.add_argument("--n_steps", type=int, default=400,
@@ -121,6 +130,8 @@ def parse_args():
                         help="Number of mini-batches for PPO")
     parser.add_argument("--entropy_coef", type=float, default=0.01,
                         help="Entropy coefficient")
+    parser.add_argument("--critic_coef", type=float, default=0.5,
+                        help="Critic coefficient")
     parser.add_argument("--use_gae", action="store_false",
                         help="Use Generalized Advantage Estimation (default: True)")
     parser.add_argument("--gamma", type=float, default=0.99,
@@ -139,11 +150,11 @@ def parse_args():
                         help="Delta for huber loss")
 
     # Evaluation parameters
-    parser.add_argument("--log_interval", type=int, default=16000,
+    parser.add_argument("--log_interval", type=int, default=10000,
                         help="Log interval (~5 rollouts 8 envs 400 steps)")
     parser.add_argument("--use_eval", action="store_false",
                         help="Evaluate the model during training (default: True)")
-    parser.add_argument("--eval_interval", type=int, default=80000,
+    parser.add_argument("--eval_interval", type=int, default=20000,
                         help="Evaluate the model every eval_interval steps (~25 rollouts 8 envs 400 steps)")
     parser.add_argument("--eval_episodes", type=int, default=32,
                         help="Number of episodes for evaluation")
@@ -155,6 +166,12 @@ def parse_args():
     # Wandb parameters
     parser.add_argument('--use_wandb', action='store_true',
                         help='Track experiment with Weights & Biases (default: False)')
+
+    # Tensorbord parameters
+    parser.add_argument('--exp_name', type=str, default=None,
+                        help='Experiment name to show in tensorboard')
+    parser.add_argument('--write_hyperparams', action='store_false', default=True,
+                        help='Write config to json file (default: True)')
 
     # Rendering parameters
     parser.add_argument("--mode", choices=["train", "eval", "render"],
@@ -250,12 +267,24 @@ def main():
     print(f"  PyTorch threads: {torch.get_num_threads()}")
 
     try:
-        if args.algo == "mappo":
-            runner = MAPPORunner(args, device)
-        elif args.algo == "happo":
-            runner = HAPPORunner(args, device)
+        if args.srmt_core:
+            match args.algo:
+                case "mappo":
+                    runner = MAPPO_SRMTRunner(args, device)
+                case "ippo":
+                    runner = IPPO_SRMTRunner(args, device)
+                case _:
+                    raise ValueError(f"Invalid algorithm: {args.algo}")
         else:
-            raise ValueError(f"Invalid algorithm: {args.algo}")
+            match args.algo:
+                case "mappo":
+                    runner = MAPPORunner(args, device)
+                case "happo":
+                    runner = HAPPORunner(args, device)
+                case "ippo":
+                    runner = IPPORunner(args, device)
+                case _:
+                    raise ValueError(f"Invalid algorithm: {args.algo}")
 
         if args.mode == "train":
             runner.run()

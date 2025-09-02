@@ -497,10 +497,6 @@ class MAPPO_SRMT(MAPPO):
             deterministic: bool = False,
     ):
         with torch.no_grad():
-            # Handle RNN states and masks based on whether RNN is enabled
-            if self.use_rnn:
-                if rnn_states is None or masks is None:
-                    raise ValueError("rnn_states and masks must be provided when RNN is enabled")
 
             # Get actions
             actions, action_log_probs, rnn_states_out, additional_outputs = self.actor.get_actions(

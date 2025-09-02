@@ -827,12 +827,10 @@ class MAPPO_SRMTRunner(MAPPORunner):
             values = unflatten_first_dim(values_t, shape).cpu().numpy()
 
             # Reshape RNN states if using RNN
+            actor_rnn_states = None
+            critic_rnn_states = None
             if self.args.use_rnn:
-                actor_rnn_states = unflatten_first_dim(actor_rnn_states_t, shape).cpu().numpy()
                 critic_rnn_states = unflatten_first_dim(critic_rnn_states_t, shape).cpu().numpy()
-            else:
-                actor_rnn_states = None
-                critic_rnn_states = None
 
             # Execute actions in environment
             obs, share_obs, rewards, dones, infos, available_actions = self.envs.step(actions)
@@ -927,7 +925,6 @@ class MAPPO_SRMTRunner(MAPPORunner):
 
         # Reset RNN states for done environments
         if self.args.use_rnn:
-            actor_rnn_states[done_env_mask] = 0.0
             critic_rnn_states[done_env_mask] = 0.0
 
         # Create masks
@@ -1015,17 +1012,7 @@ class MAPPO_SRMTRunner(MAPPORunner):
         episode_length = np.zeros((self.args.n_eval_rollout_threads), dtype=np.float32)
 
         # Initialize RNN states
-        if self.args.use_rnn:
-            eval_rnn_states = np.zeros(
-                (
-                    self.args.n_eval_rollout_threads,
-                    self.eval_envs.n_agents,
-                    self.args.rnn_layers,
-                    self.args.hidden_size
-                ),
-                dtype=np.float32)
-        else:
-            eval_rnn_states = None
+        eval_rnn_states = None
 
         # Initialize masks
         eval_masks = np.ones(
@@ -1045,7 +1032,7 @@ class MAPPO_SRMTRunner(MAPPORunner):
                 ),
                 flatten_first_dims(
                     to_tensor(eval_rnn_states, device=self.device)
-                ) if self.args.use_rnn else None,
+                ) if eval_rnn_states is not None else None,
                 flatten_first_dims(
                     to_tensor(eval_masks, device=self.device)
                 ),
@@ -1069,7 +1056,7 @@ class MAPPO_SRMTRunner(MAPPORunner):
             actions = unflatten_first_dim(actions, shape).cpu().numpy()
             eval_rnn_states = (
                 unflatten_first_dim(eval_rnn_states, shape).cpu().numpy()
-            ) if self.args.use_rnn else None
+            ) if eval_rnn_states is not None else None
 
             # Unfflatten SRMT data
             history_seq = unflatten_first_dim(history_seq, shape).cpu().numpy() if history_seq is not None else None
@@ -1088,9 +1075,6 @@ class MAPPO_SRMTRunner(MAPPORunner):
             done_envs = np.all(dones, axis=1)
             done_env_mask = done_envs == True
 
-            # Reset RNN states and masks for done environments
-            if self.args.use_rnn:
-                eval_rnn_states[done_env_mask] = 0.0
             eval_masks = np.ones(
                 (self.args.n_eval_rollout_threads, self.eval_envs.n_agents, 1),
                 dtype=np.float32,

@@ -28,7 +28,6 @@ class TransformerCore(nn.Module):
         core_cfg_copy = deepcopy(self.core_cfg).__dict__
         core_cfg_copy['hidden_size'] = core_cfg_copy.pop('core_hidden_size')
 
-        self.rnn_placeholder = nn.Linear(self.core_cfg.core_hidden_size, 1, bias=False)
         # self.encoder = nn.Linear(input_size, self.core_cfg.core_hidden_size)
         self.core_transformer = GPT2Block(GPT2Config(**core_cfg_copy))
         self.wpe = nn.Embedding(core_cfg_copy['max_position_embeddings'],
@@ -45,7 +44,6 @@ class TransformerCore(nn.Module):
 
     def forward(self,
                 head_output,
-                rnn_states,
                 history_seq=None,
                 agent_memory=None,
                 global_memory=None,
@@ -90,7 +88,6 @@ class TransformerCore(nn.Module):
             else:
                 my_new_mem, _ = torch.split(x, [1, x.size()[1] - 1], dim=1)
             my_new_mem = self.mem_head(my_new_mem)
-        rnn_out_placeholder = self.rnn_placeholder(core_out).squeeze(1)
 
         # update history with current head_output
         if history_seq is not None:
@@ -108,7 +105,7 @@ class TransformerCore(nn.Module):
         additional_outputs['agent_memory'] = my_new_mem if self.use_memory else None
         additional_outputs['global_memory'] = global_memory if self.use_memory else None
 
-        return core_out, rnn_out_placeholder, additional_outputs
+        return core_out, additional_outputs
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)

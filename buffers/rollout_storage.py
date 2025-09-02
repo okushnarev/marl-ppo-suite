@@ -237,7 +237,8 @@ class RolloutStorage:
         self.truncated[self.step + 1] = truncates.copy()
 
         if self.use_rnn:
-            self.actor_rnn_states[self.step + 1] = actor_rnn_states.copy()
+            if actor_rnn_states is not None:
+                self.actor_rnn_states[self.step + 1] = actor_rnn_states.copy()
 
             # Store critic RNN states based on type
             if self.is_fp_state:

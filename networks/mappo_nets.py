@@ -226,7 +226,7 @@ class ActorSRMT(Actor):
 
         additional_outputs = {}
         if self.srmt_core:
-            x, _, additional_outputs = self.core(x, rnn_states, history_seq, agent_memory, global_memory)
+            x, additional_outputs = self.core(x, history_seq, agent_memory, global_memory)
 
         if self.use_rnn:
             x, rnn_states_out = self.rnn(x, rnn_states, masks)

@@ -19,7 +19,6 @@ class IPPO(MAPPO):
                        obs_space: gymnasium.spaces.Box,
                        state_space: gymnasium.spaces.Box,
                        action_space: gymnasium.spaces.Discrete) -> None:
-        super()._init_networks(obs_space, state_space, action_space)
 
         self.actor_critic = ActorCriticSRMT(
             self.args,
@@ -35,6 +34,44 @@ class IPPO(MAPPO):
 
         self.actor = self.actor_critic
         self.critic = self.actor_critic
+
+        if self.args.use_linear_lr_decay:
+            self.scheduler = LinearScheduler(
+                self.lr,
+                self.args.min_lr,
+                self.args.max_steps
+            )
+
+    def save(self, save_path, save_args=False):
+        """Save both actor and critic networks."""
+        # Save model weights and optimizer states
+        model_path = save_path
+
+        torch.save({
+            'actor_critic_state_dict': self.actor_critic.state_dict(),
+            'optimizer_state_dict':       self.optimizer.state_dict(),
+        }, model_path)
+
+        # Save args separately
+        if save_args:
+            args_path = save_path + '.args'
+            torch.save({'args': self.args}, args_path)
+
+    def load(self, model_path):
+        """Load both actor and critic networks."""
+        checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)
+
+        # Load network states
+        self.actor_critic.load_state_dict(checkpoint['actor_critic_state_dict'])
+
+        # Load optimizer states
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        # Load args separately if they exist
+        args_path = model_path + '.args'
+        if os.path.exists(args_path):
+            args_dict = torch.load(args_path, weights_only=False)
+            self.args = args_dict['args']
 
     def get_values(self,
                    state: torch.Tensor,
@@ -169,7 +206,6 @@ class IPPO_SRMT(MAPPO_SRMT):
                        obs_space: gymnasium.spaces.Box,
                        state_space: gymnasium.spaces.Box,
                        action_space: gymnasium.spaces.Discrete) -> None:
-        super()._init_networks(obs_space, state_space, action_space)
 
         self.actor_critic = ActorCriticSRMT(
             self.args,
@@ -185,6 +221,44 @@ class IPPO_SRMT(MAPPO_SRMT):
 
         self.actor = self.actor_critic
         self.critic = self.actor_critic
+
+        if self.args.use_linear_lr_decay:
+            self.scheduler = LinearScheduler(
+                self.lr,
+                self.args.min_lr,
+                self.args.max_steps
+            )
+
+    def save(self, save_path, save_args=False):
+        """Save both actor and critic networks."""
+        # Save model weights and optimizer states
+        model_path = save_path
+
+        torch.save({
+            'actor_critic_state_dict': self.actor_critic.state_dict(),
+            'optimizer_state_dict':    self.optimizer.state_dict(),
+        }, model_path)
+
+        # Save args separately
+        if save_args:
+            args_path = save_path + '.args'
+            torch.save({'args': self.args}, args_path)
+
+    def load(self, model_path):
+        """Load both actor and critic networks."""
+        checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)
+
+        # Load network states
+        self.actor_critic.load_state_dict(checkpoint['actor_critic_state_dict'])
+
+        # Load optimizer states
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        # Load args separately if they exist
+        args_path = model_path + '.args'
+        if os.path.exists(args_path):
+            args_dict = torch.load(args_path, weights_only=False)
+            self.args = args_dict['args']
 
     def get_values(self,
                    state: torch.Tensor,

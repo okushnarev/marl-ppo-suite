@@ -17,7 +17,7 @@ class CNNMLPEncoder(nn.Module):
             input_dim: int,
             output_dim: int,
             cnn_layer_configs: List[Dict[str, Any]] | Dict[str, List[Any]],
-            mlp_hidden_dims: List[int],
+            mlp_layer_configs: List[int],
             activation_fn: Type[nn.Module] = nn.ReLU
     ):
         """
@@ -30,7 +30,7 @@ class CNNMLPEncoder(nn.Module):
             cnn_layer_configs (List[Dict[str, Any]]): A list of dictionaries, where each
                                                       dictionary configures one Conv1d layer.
                                                       Example: [{'out_channels': 64, 'kernel_size': 3, 'stride': 2, 'padding': 'same'}, ...]
-            mlp_hidden_dims (List[int]): A list of hidden dimensions for the MLP block.
+            mlp_layer_configs (List[int]): A list of hidden dimensions for the MLP block.
                                          The final output layer is added automatically.
             activation_fn (Type[nn.Module]): The activation function to use after each
                                              convolutional and hidden linear layer.
@@ -64,8 +64,7 @@ class CNNMLPEncoder(nn.Module):
         #  Build MLP Block
         mlp_layers = []
         current_features = mlp_input_dim
-
-        for hidden_dim in mlp_hidden_dims:
+        for hidden_dim in mlp_layer_configs:
             mlp_layers.append(
                 nn.Linear(current_features, hidden_dim)
             )

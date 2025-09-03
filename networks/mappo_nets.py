@@ -22,7 +22,8 @@ def _orthogonal_init(layer, gain=1.0, bias_const=0.0):
     """Enhanced orthogonal initialization with configurable gain and bias."""
     if isinstance(layer, nn.Linear):
         nn.init.orthogonal_(layer.weight, gain)
-        nn.init.constant_(layer.bias, bias_const)
+        if layer.bias is not None:
+            nn.init.constant_(layer.bias, bias_const)
     elif isinstance(layer, nn.LayerNorm):
         nn.init.constant_(layer.weight, 1.0)
         nn.init.constant_(layer.bias, 0.0)
@@ -431,7 +432,7 @@ class ActorCriticSRMT(nn.Module):
             'out_channels': [64, 128, 256],
             'kernel_size':  [3] * 3,
             'stride':       [2, 1, 1],
-            'padding':      ['same', 'valid', 'valid'],
+            'padding':      ['valid', 'valid', 'valid'],
         }
 
         self.mlp_layer_configs = [256]
@@ -536,7 +537,10 @@ class ActorCriticSRMT(nn.Module):
             actions = action_dist.sample().unsqueeze(-1)  # (batch_size, 1)
             action_log_probs = action_dist.log_prob(actions.squeeze(-1)).unsqueeze(-1)  # (batch_size, 1)
 
-        return actions, action_log_probs, rnn_states_out, additional_outputs
+        if self.srmt_core:
+            return actions, action_log_probs, rnn_states_out, additional_outputs
+        else:
+            return actions, action_log_probs, rnn_states_out
 
     def evaluate_actions(self, obs, actions, rnn_states=None, masks=None, available_actions=None, history_seq=None,
                          agent_memory=None, global_memory=None):

@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import gymnasium
 
-from networks.mappo_nets import Actor, Critic
+from networks.mappo_nets import Actor, ActorCriticSRMT, Critic
 from utils.scheduler import LinearScheduler
 from utils.value_normalizers import create_value_normalizer
 from typing import Optional
@@ -21,16 +21,20 @@ class IPPO(MAPPO):
                        action_space: gymnasium.spaces.Discrete) -> None:
         super()._init_networks(obs_space, state_space, action_space)
 
-        self.critic = Critic(
+        self.actor_critic = ActorCriticSRMT(
             self.args,
             obs_space,
+            action_space,
             self.device
         )
-        self.critic_optimizer = optim.Adam(
-            self.critic.parameters(),
+        self.optimizer = optim.Adam(
+            self.actor_critic.parameters(),
             lr=self.lr,
             eps=self.args.optimizer_eps
         )
+
+        self.actor = self.actor_critic
+        self.critic = self.actor_critic
 
     def get_values(self,
                    state: torch.Tensor,
@@ -52,7 +56,7 @@ class IPPO(MAPPO):
                     raise ValueError("rnn_states and masks must be provided when RNN is enabled")
 
             # Get values and states
-            values, rnn_states_out = self.critic(
+            values, rnn_states_out = self.actor_critic.forward_critic(
                 obs,
                 rnn_states,
                 masks
@@ -78,15 +82,85 @@ class IPPO(MAPPO):
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: (values, action_log_probs, dist_entropy)
         """
-        action_log_probs, dist_entropy, _ = self.actor.evaluate_actions(
+        action_log_probs, dist_entropy, _ = self.actor_critic.evaluate_actions(
             obs,
             actions,
             actor_h0,
             masks,
             available_actions)
 
-        values, _ = self.critic(obs, critic_h0, masks)
+        values, _ = self.actor_critic.forward_critic(obs, critic_h0, masks)
         return values, action_log_probs, dist_entropy
+
+    def update(self, mini_batch):
+        """
+        Update policy using a mini-batch of experiences.
+
+        Args:
+            mini_batch (dict): Dictionary containing mini-batch data
+
+        Returns:
+            tuple: (value_loss, policy_loss, dist_entropy)
+        """
+        metrics = {}
+        # Extract data from mini-batch
+        (obs_batch,
+         global_state_batch,
+         actor_h0_batch,
+         critic_h0_batch,
+         actions_batch,
+         values_batch,
+         returns_batch,
+         masks_batch,
+         active_masks_batch,
+         old_action_log_probs_batch,
+         advantages_batch,
+         available_actions_batch,
+         ) = mini_batch
+
+        # Evaluate actions
+        values, action_log_probs, dist_entropy = self.evaluate_actions(
+            global_state_batch, obs_batch, actions_batch,
+            available_actions_batch, masks_batch, active_masks_batch,
+            actor_h0_batch, critic_h0_batch,
+        )
+
+        # Calculate PPO ratio and KL divergence
+        ratio = torch.exp(action_log_probs - old_action_log_probs_batch)
+        approx_kl = ((ratio - 1) - torch.log(ratio)).mean().item()
+        clip_ratio = (torch.abs(ratio - 1) > self.clip_param).float().mean().item()
+
+        # Actor Loss
+        surr1 = ratio * advantages_batch
+        surr2 = torch.clamp(ratio, 1.0 - self.clip_param, 1.0 + self.clip_param) * advantages_batch
+        policy_loss = -torch.min(surr1, surr2).mean()
+        entropy_loss = -self.entropy_coef * torch.mean(dist_entropy)
+        actor_loss = policy_loss + entropy_loss
+
+        #  Critic loss
+        critic_loss = self.compute_value_loss(values, values_batch, returns_batch)
+
+        # Overall loss
+        overall_loss = actor_loss + critic_loss
+
+        # Update Actor Critic
+        self.optimizer.zero_grad()
+        overall_loss.backward()
+        grad_norm = self._clip_gradients(self.actor_critic)
+        self.optimizer.step()
+
+        # Update metrics
+        metrics.update({
+            'critic_loss':      critic_loss.item(),
+            'actor_loss':       actor_loss.item(),
+            'entropy_loss':     entropy_loss.item(),
+            'approx_kl':        approx_kl,
+            'clip_ratio':       clip_ratio,
+            'actor_grad_norm':  grad_norm,
+            'critic_grad_norm': grad_norm
+        })
+
+        return metrics
 
 
 class IPPO_SRMT(MAPPO_SRMT):
@@ -97,16 +171,20 @@ class IPPO_SRMT(MAPPO_SRMT):
                        action_space: gymnasium.spaces.Discrete) -> None:
         super()._init_networks(obs_space, state_space, action_space)
 
-        self.critic = Critic(
+        self.actor_critic = ActorCriticSRMT(
             self.args,
             obs_space,
+            action_space,
             self.device
         )
-        self.critic_optimizer = optim.Adam(
-            self.critic.parameters(),
+        self.optimizer = optim.Adam(
+            self.actor_critic.parameters(),
             lr=self.lr,
             eps=self.args.optimizer_eps
         )
+
+        self.actor = self.actor_critic
+        self.critic = self.actor_critic
 
     def get_values(self,
                    state: torch.Tensor,
@@ -122,7 +200,7 @@ class IPPO_SRMT(MAPPO_SRMT):
                     raise ValueError("rnn_states and masks must be provided when RNN is enabled")
 
             # Get values and states
-            values, rnn_states_out = self.critic(
+            values, rnn_states_out = self.actor_critic.forward_critic(
                 obs,
                 rnn_states,
                 masks
@@ -148,7 +226,7 @@ class IPPO_SRMT(MAPPO_SRMT):
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: (values, action_log_probs, dist_entropy)
         """
-        action_log_probs, dist_entropy, _ = self.actor.evaluate_actions(
+        action_log_probs, dist_entropy, _ = self.actor_critic.evaluate_actions(
             obs,
             actions,
             actor_h0,
@@ -159,5 +237,79 @@ class IPPO_SRMT(MAPPO_SRMT):
             global_memory,
         )
 
-        values, _ = self.critic(obs, critic_h0, masks)
+        values, _ = self.actor_critic.forward_critic(obs, critic_h0, masks)
         return values, action_log_probs, dist_entropy
+
+    def update(self, mini_batch):
+        """
+        Update policy using a mini-batch of experiences.
+
+        Args:
+            mini_batch (dict): Dictionary containing mini-batch data
+
+        Returns:
+            tuple: (value_loss, policy_loss, dist_entropy)
+        """
+        metrics = {}
+        # Extract data from mini-batch
+        (obs_batch,
+         global_state_batch,
+         actor_h0_batch,
+         critic_h0_batch,
+         actions_batch,
+         values_batch,
+         returns_batch,
+         masks_batch,
+         active_masks_batch,
+         old_action_log_probs_batch,
+         advantages_batch,
+         available_actions_batch,
+         history_seq,
+         agent_memory,
+         global_memory,
+         ) = mini_batch
+
+        # Evaluate actions
+        values, action_log_probs, dist_entropy = self.evaluate_actions(
+            global_state_batch, obs_batch, actions_batch,
+            available_actions_batch, masks_batch, active_masks_batch,
+            actor_h0_batch, critic_h0_batch,
+            history_seq, agent_memory, global_memory,
+        )
+
+        # Calculate PPO ratio and KL divergence
+        ratio = torch.exp(action_log_probs - old_action_log_probs_batch)
+        approx_kl = ((ratio - 1) - torch.log(ratio)).mean().item()
+        clip_ratio = (torch.abs(ratio - 1) > self.clip_param).float().mean().item()
+
+        # Actor Loss
+        surr1 = ratio * advantages_batch
+        surr2 = torch.clamp(ratio, 1.0 - self.clip_param, 1.0 + self.clip_param) * advantages_batch
+        policy_loss = -torch.min(surr1, surr2).mean()
+        entropy_loss = -self.entropy_coef * torch.mean(dist_entropy)
+        actor_loss = policy_loss + entropy_loss
+
+        #  Critic loss
+        critic_loss = self.compute_value_loss(values, values_batch, returns_batch)
+
+        # Overall loss
+        overall_loss = actor_loss + critic_loss
+
+        # Update Actor Critic
+        self.optimizer.zero_grad()
+        overall_loss.backward()
+        grad_norm = self._clip_gradients(self.actor_critic)
+        self.optimizer.step()
+
+        # Update metrics
+        metrics.update({
+            'critic_loss':      critic_loss.item(),
+            'actor_loss':       actor_loss.item(),
+            'entropy_loss':     entropy_loss.item(),
+            'approx_kl':        approx_kl,
+            'clip_ratio':       clip_ratio,
+            'actor_grad_norm':  grad_norm,
+            'critic_grad_norm': grad_norm
+        })
+
+        return metrics

@@ -36,45 +36,52 @@ class CNNMLPEncoder(nn.Module):
                                              convolutional and hidden linear layer.
         """
         super().__init__()
+
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.cnn_layer_configs = cnn_layer_configs
+        self.mlp_layer_configs = mlp_layer_configs
+        self.activation_fn = activation_fn
+
         
         # Check for proper CNN layer configs
-        if isinstance(cnn_layer_configs, dict):
-            k, v = zip(*cnn_layer_configs.items())
-            layer_count = len(cnn_layer_configs[k[0]])
+        if isinstance(self.cnn_layer_configs, dict):
+            k, v = zip(*self.cnn_layer_configs.items())
+            layer_count = len(self.cnn_layer_configs[k[0]])
             _cfg = []
             for idx in range(layer_count):
                 _cfg.append(dict(zip(k, [val[idx] for val in v])))
-            cnn_layer_configs = _cfg
+            self.cnn_layer_configs = _cfg
 
         #  Build CNN Block 
         cnn_layers = []
         current_channels = 1
-        for config in cnn_layer_configs:
+        for config in self.cnn_layer_configs:
             cnn_layers.append(
                 nn.Conv1d(in_channels=current_channels, **config)
             )
-            cnn_layers.append(activation_fn())
+            cnn_layers.append(self.activation_fn())
             current_channels = config['out_channels']
 
         self.cnn_block = nn.Sequential(*cnn_layers)
 
         #  Automatically determine the input size for the MLP block
-        mlp_input_dim = self._get_cnn_output_dim(input_dim)
+        mlp_input_dim = self._get_cnn_output_dim(self.input_dim)
 
         #  Build MLP Block
         mlp_layers = []
         current_features = mlp_input_dim
-        for hidden_dim in mlp_layer_configs:
+        for hidden_dim in self.mlp_layer_configs:
             mlp_layers.append(
                 nn.Linear(current_features, hidden_dim)
             )
-            mlp_layers.append(activation_fn())
+            mlp_layers.append(self.activation_fn())
             current_features = hidden_dim
 
         # Add the final output layer. Note: No activation is applied here,
         # as it typically depends on the downstream task (e.g., logits for a policy,
         # or a raw value for a critic).
-        mlp_layers.append(nn.Linear(current_features, output_dim))
+        mlp_layers.append(nn.Linear(current_features, self.output_dim))
 
         self.mlp_block = nn.Sequential(*mlp_layers)
 
@@ -84,7 +91,7 @@ class CNNMLPEncoder(nn.Module):
         a single forward pass with a dummy tensor.
         """
         with torch.no_grad():
-            dummy_input = torch.zeros(1, input_dim)
+            dummy_input = torch.zeros(1, 1, input_dim)
             output = self.cnn_block(dummy_input)
             return output.flatten(1).shape[1]
 
@@ -99,7 +106,7 @@ class CNNMLPEncoder(nn.Module):
             torch.Tensor: The encoded output tensor of shape (batch_size, output_dim).
         """
         # 1. Pass through CNN layers for feature extraction
-        cnn_out = self.cnn_block(x)
+        cnn_out = self.cnn_block(x.unsqueeze(1))
 
         # 2. Flatten the output for the MLP
         flattened = cnn_out.flatten(start_dim=1)

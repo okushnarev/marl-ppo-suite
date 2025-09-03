@@ -15,6 +15,7 @@ from runners.happo_runner import HAPPORunner
 from utils.env_tools import set_global_seeds
 from utils.sc2_utils import kill_sc2_processes
 
+
 # Register cleanup function to kill SC2 processes on exit
 # def cleanup_sc2_processes():
 #     print("\nCleaning up any lingering SC2 processes...")
@@ -43,8 +44,7 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=1, help="Random seed for numpy/torch")
     parser.add_argument("--cuda", action='store_false', default=True,
                         help="by default True, will use GPU to train; or else will use CPU;")
-    parser.add_argument("--cuda_deterministic",
-                        action='store_false', default=True,
+    parser.add_argument("--cuda_deterministic", action='store_false', default=True,
                         help="by default, make sure random seed effective. if set, bypass such function.")
     parser.add_argument("--torch_threads", type=int, default=None,
                         help="Set PyTorch/OMP/MKL threads (default None))")
@@ -64,14 +64,14 @@ def parse_args():
 
     # State parameters
     parser.add_argument("--state_type", type=str, default="EP", choices=["FP", "EP", "AS"],
-        help="Type of state to use in critic: 'FP' (Feature Pruned AS - only Smacv1) or "
-        "'EP' (Environment Provided) or 'AS' (Agent-Specific - observation + state / not implemented)")
+                        help="Type of state to use in critic: 'FP' (Feature Pruned AS - only Smacv1) or "
+                             "'EP' (Environment Provided) or 'AS' (Agent-Specific - observation + state / not implemented)")
 
     # SMACv2 state parameters
     parser.add_argument("--use_death_masking", action="store_true", default=False,
-        help="Whether to use SMACv2 death masking (default: False)") # will make sure critic see zeros too
+                        help="Whether to use SMACv2 death masking (default: False)")  # will make sure critic see zeros too
     parser.add_argument("--use_agent_id", action="store_true", default=False,
-        help="Whether to use SMACv2 agent ID (default: False)") # Doesn't make sense, because Randomness.
+                        help="Whether to use SMACv2 agent ID (default: False)")  # Doesn't make sense, because Randomness.
 
     # Optimizer parameters
     parser.add_argument("--lr", type=float, default=5e-4,
@@ -98,6 +98,8 @@ def parse_args():
                         help="Dimension of hidden layers")
     parser.add_argument("--actor_gain", type=float, default=0.01,
                         help="Gain of the actor final linear layer")
+    parser.add_argument("--critic_gain", type=float, default=0.01,
+                        help="Gain of the critic final linear layer")
     parser.add_argument("--use_feature_normalization", action='store_false',
                         help="Apply layernorm to the inputs (default: True)")
     parser.add_argument("--use_value_norm", action="store_true",
@@ -159,9 +161,9 @@ def parse_args():
     parser.add_argument("--eval_episodes", type=int, default=32,
                         help="Number of episodes for evaluation")
     parser.add_argument("--capture_video", action="store_true", default=False,
-                    help="Capture video during training (default: False)")
+                        help="Capture video during training (default: False)")
     parser.add_argument("--capture_video_interval", type=int, default=100000,
-                    help="Capture video every capture_video_interval steps (~30 rollouts 8 envs 400 steps))")
+                        help="Capture video every capture_video_interval steps (~30 rollouts 8 envs 400 steps))")
 
     # Wandb parameters
     parser.add_argument('--use_wandb', action='store_true',
@@ -175,8 +177,8 @@ def parse_args():
 
     # Rendering parameters
     parser.add_argument("--mode", choices=["train", "eval", "render"],
-                    default="train",
-                    help="train (default), eval (no learning), or render")
+                        default="train",
+                        help="train (default), eval (no learning), or render")
     parser.add_argument("--config", type=str, default=None,
                         help="Path to the configuration file for rendering and evaluation")
     parser.add_argument("--model", type=str, default=None,
@@ -188,18 +190,19 @@ def parse_args():
 
     return parser.parse_args()
 
+
 def load_render_config(args):
     import json
     with open(args.config, 'r') as f:
         config = json.load(f)
 
     protected_flags = {
-        'mode': args.mode,
-        'model': args.model,
-        'render_episodes': args.render_episodes,
-        'render_mode': args.render_mode,
-        'eval_episodes': args.eval_episodes,
-        'capture_video': args.capture_video,
+        'mode':                   args.mode,
+        'model':                  args.model,
+        'render_episodes':        args.render_episodes,
+        'render_mode':            args.render_mode,
+        'eval_episodes':          args.eval_episodes,
+        'capture_video':          args.capture_video,
         'n_eval_rollout_threads': args.n_eval_rollout_threads
         # Add any other flags that should be protected
     }
@@ -218,6 +221,7 @@ def load_render_config(args):
     # Create new Namespace with updated values
     args = argparse.Namespace(**original_args_dict)
     return args
+
 
 def main():
     args = parse_args()
@@ -306,7 +310,7 @@ def main():
         # Clean up environments even if an error occurs
         if runner is not None:
             try:
-               runner.close()
+                runner.close()
             except Exception as e:
                 print(f"Error closing environments: {e}")
 
@@ -314,8 +318,6 @@ def main():
         # print("Ensuring all SC2 processes are terminated...")
         # kill_sc2_processes()
 
+
 if __name__ == "__main__":
     main()
-
-
-

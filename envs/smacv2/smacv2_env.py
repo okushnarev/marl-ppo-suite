@@ -146,8 +146,6 @@ class SMACv2Env:
             # If use_death_masking is False, all agents are not done
             dones = [False] * self.n_agents
 
-        # Dead agents IDs
-        dead_agents = [action[0] for action in self.env.get_avail_actions()]
 
         # Pass additional info
         info.update({
@@ -156,10 +154,13 @@ class SMACv2Env:
             "battles_game": self.env.env.battles_game,
             "battles_won": self.env.env.battles_won,
             "battle_won": self.env.env.win_counted,  # Add this key for compatibility with mappo_runner.py
-            "dead_agents": dead_agents,
+            "dead_agents": self.get_dead_agents(),
         })
 
         return obs, state, rewards, dones, info, available_actions
+
+    def get_dead_agents(self):
+        return [action[0] for action in self.env.get_avail_actions()]
 
     def close(self):
         self.env.close()

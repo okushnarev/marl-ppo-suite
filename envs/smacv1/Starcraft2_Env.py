@@ -633,6 +633,9 @@ class StarCraft2Env(MultiAgentEnv):
                 local_obs = self.stacked_local_obs.reshape(self.n_agents, -1)
                 global_state = self.stacked_global_state.reshape(self.n_agents, -1)
 
+            # Dead agents IDs
+            info["dead_agents"] = self.get_dead_agents()
+
             return (
                 local_obs,
                 global_state,
@@ -730,8 +733,7 @@ class StarCraft2Env(MultiAgentEnv):
         local_obs = self.get_obs()
 
         # Dead agents IDs
-        dead_agents = [action[0] for action in self.get_avail_actions()]
-        info["dead_agents"] = dead_agents
+        info["dead_agents"] = self.get_dead_agents()
 
         if self.use_stacked_frames:
             self.stacked_local_obs = np.roll(self.stacked_local_obs, 1, axis=1)
@@ -744,6 +746,9 @@ class StarCraft2Env(MultiAgentEnv):
             global_state = self.stacked_global_state.reshape(self.n_agents, -1)
 
         return local_obs, global_state, rewards, dones, info, available_actions
+
+    def get_dead_agents(self):
+        return [action[0] for action in self.get_avail_actions()]
 
     def get_agent_action(self, a_id, action):
         """Construct the action for agent a_id."""

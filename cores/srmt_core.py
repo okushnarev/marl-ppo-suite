@@ -29,7 +29,8 @@ class TransformerCore(nn.Module):
         core_cfg_copy['hidden_size'] = core_cfg_copy.pop('core_hidden_size')
 
         # self.encoder = nn.Linear(input_size, self.core_cfg.core_hidden_size)
-        self.core_transformer = GPT2Block(GPT2Config(**core_cfg_copy))
+        self.core_transformer = nn.ModuleList(
+            [GPT2Block(GPT2Config(**core_cfg_copy), layer_idx=i) for i in range(cfg.num_transformer_layers)])
         self.wpe = nn.Embedding(core_cfg_copy['max_position_embeddings'],
                                 self.core_cfg.core_hidden_size)
         # self.decoder = nn.Linear(self.core_cfg.core_hidden_size, input_size)
@@ -76,9 +77,14 @@ class TransformerCore(nn.Module):
         if agent_memory is not None:
             if self.use_global_memory:
                 encoder_hidden_states = global_memory.contiguous()
-        x = self.core_transformer(hidden_states=hidden_states.contiguous(),
-                                  encoder_hidden_states=encoder_hidden_states,
-                                  )[0]
+        for block in self.core_transformer:
+            outputs = block(
+                hidden_states.contiguous(),
+                encoder_hidden_states=encoder_hidden_states,
+            )
+            hidden_states = outputs[0]
+        x = outputs[0].contiguous()
+
         x = self.ln_f(x)
         core_out = x[:, -1:]
 

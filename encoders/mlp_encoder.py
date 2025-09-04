@@ -44,9 +44,9 @@ class MLPEncoder(nn.Module):
         current_features = input_dim
         for hidden_dim in self.mlp_layer_configs:
             mlp_layers += [
-                nn.Linear(current_features, self.hidden_size),
+                nn.Linear(current_features, hidden_dim),
                 self.activation_fn(),
-                nn.LayerNorm(self.hidden_size),
+                nn.LayerNorm(hidden_dim),
             ]
             current_features = hidden_dim
 

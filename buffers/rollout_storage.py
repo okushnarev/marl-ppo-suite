@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from utils.env_tools import get_shape_from_obs_space, get_shape_from_act_space
+from utils.env_tools import get_shape_from_act_space, get_shape_from_obs_space
 from utils.transform_tools import flatten_time_batch, to_tensor
 
 
@@ -582,7 +582,7 @@ class RolloutStorageSRMT(RolloutStorage):
         self.srmt_core = args.srmt_core
         self.use_agent_memory = args.use_agent_memory
         self.use_global_memory = args.use_global_memory
-        self.data_chunk_length = args.data_chunk_length
+        self.data_chunk_length = args.n_steps
 
         self._init_srmt_memory()
 
@@ -866,3 +866,4 @@ class RolloutStorageSRMT(RolloutStorage):
                 flatten_time_batch(T, N, batch['agent_memory']) if 'agent_memory' in batch else None,
                 flatten_time_batch(T, N, batch['global_memory']) if 'global_memory' in batch else None,
             )
+

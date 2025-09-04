@@ -37,7 +37,7 @@ class TransformerCore(nn.Module):
         if self.use_memory:
             self.mem_head = nn.Linear(self.core_cfg.core_hidden_size,
                                       self.core_cfg.core_hidden_size,
-                                      bias=False)
+                                      bias=True)
 
         self.ln_f = nn.LayerNorm(self.core_cfg.core_hidden_size, eps=1e-5)
 
@@ -73,10 +73,12 @@ class TransformerCore(nn.Module):
         position_embeds = self.wpe(position_ids)
         hidden_states = inputs + position_embeds
 
+        # Run SRMT core
         encoder_hidden_states = None
         if agent_memory is not None:
             if self.use_global_memory:
                 encoder_hidden_states = global_memory.contiguous()
+
         for block in self.core_transformer:
             outputs = block(
                 hidden_states.contiguous(),

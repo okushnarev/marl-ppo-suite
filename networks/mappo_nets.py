@@ -11,6 +11,7 @@ from gymnasium.spaces import Box, Discrete
 from torch.distributions import Categorical
 
 from cores.srmt_core import TransformerCore
+from encoders.mlp_encoder import MLPEncoder
 from networks.modules.rnn import GRUModule
 
 from encoders.cnn_mlp_encoder import CNNMLPEncoder
@@ -427,21 +428,20 @@ class ActorCriticSRMT(nn.Module):
         # Feature Normalization
         if self.use_feature_normalization:
             self.feature_norm = nn.LayerNorm(obs_dim)
-
+        """
         self.cnn_layer_configs = {
-            'out_channels': [64, 128, 256],
-            'kernel_size':  [3] * 3,
-            'stride':       [2, 1, 1],
-            'padding':      ['valid', 'valid', 'valid'],
+            'out_channels': [4, 2],
+            'kernel_size':  [5, 5],
+            'stride':       [1, 1],
+            'padding':      ['valid', 'valid',],
         }
-
-        self.mlp_layer_configs = [256]
+        """
+        self.mlp_layer_configs = [self.hidden_size]
 
         # TODO: take Encoder config out of class, just pass self.encoder = CNNMLPEncoder(*EncoderConfig)
-        self.encoder = CNNMLPEncoder(
+        self.encoder = MLPEncoder(
             input_dim=obs_dim,
             output_dim=self.hidden_size,
-            cnn_layer_configs=self.cnn_layer_configs,
             mlp_layer_configs=self.mlp_layer_configs,
         )
 
@@ -573,7 +573,7 @@ class ActorCriticSRMT(nn.Module):
 
         return action_log_probs, dist_entropy, rnn_states_out
 
-    def forward_critic(self, x, rnn_states=None, masks=None):
+    def forward_critic(self, x, rnn_states=None, masks=None, history_seq=None, agent_memory=None, global_memory=None):
         """Forward pass for critic network.
 
         Args:
@@ -594,6 +594,9 @@ class ActorCriticSRMT(nn.Module):
             x = self.feature_norm(x)
 
         x = self.encoder(x)
+
+        if self.srmt_core:
+            x, _ = self.core(x, history_seq, agent_memory, global_memory)
 
         if self.use_rnn:
             x, rnn_states_out = self.rnn(x, rnn_states, masks)

@@ -118,7 +118,7 @@ def parse_args():
                         help="Use agent memory in SRMT core (default: False)")
     parser.add_argument("--use_global_memory", action="store_true", default=False,
                         help="Use global memory in SRMT core (default: False)")
-    parser.add_argument("--num_transformer_layers", default=1,
+    parser.add_argument("--num_transformer_layers", type=int, default=1,
                         help="How many GPT2Blocks to use in core transformer (default: 1)")
 
     # PPO parameters

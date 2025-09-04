@@ -1,18 +1,17 @@
 import os
 import time
-import imageio
+
 import numpy as np
 import torch
 
+from algos.mappo import MAPPO, MAPPO_SRMT
 from buffers.rollout_storage import RolloutStorage, RolloutStorageSRMT
 from envs import make_vec_envs
-from algos.mappo import MAPPO, MAPPO_SRMT
 from utils.env_tools import get_shape_from_obs_space
-
 from utils.logger import Logger
-from utils.reward_normalization_new import StandardNormalizer, EMANormalizer, normalise_shared_reward
-from utils.transform_tools import flatten_first_dims, unflatten_first_dim, to_tensor
-from utils.video_utils import save_video, get_latest_sc2_replay
+from utils.reward_normalization_new import EMANormalizer, StandardNormalizer, normalise_shared_reward
+from utils.transform_tools import flatten_first_dims, to_tensor, unflatten_first_dim
+from utils.video_utils import get_latest_sc2_replay, save_video
 
 
 class MAPPORunner:

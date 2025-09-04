@@ -49,7 +49,7 @@ class IPPO(MAPPO):
 
         torch.save({
             'actor_critic_state_dict': self.actor_critic.state_dict(),
-            'optimizer_state_dict':       self.optimizer.state_dict(),
+            'optimizer_state_dict':    self.optimizer.state_dict(),
         }, model_path)
 
         # Save args separately
@@ -102,7 +102,7 @@ class IPPO(MAPPO):
             return values, rnn_states_out
 
     def evaluate_actions(self, state, obs, actions, available_actions, masks, active_masks, actor_h0=None,
-                         critic_h0=None):
+                         critic_h0=None,):
         """
         Evaluate actions for training.
 
@@ -265,7 +265,10 @@ class IPPO_SRMT(MAPPO_SRMT):
                    obs: torch.Tensor,
                    active_masks: torch.Tensor,
                    rnn_states: torch.Tensor = None,
-                   masks: torch.Tensor = None):
+                   masks: torch.Tensor = None,
+                   history_seq=None,
+                   agent_memory=None,
+                   global_memory=None):
 
         with torch.no_grad():
             # Handle RNN states and masks based on whether RNN is enabled
@@ -277,7 +280,10 @@ class IPPO_SRMT(MAPPO_SRMT):
             values, rnn_states_out = self.actor_critic.forward_critic(
                 obs,
                 rnn_states,
-                masks
+                masks,
+                history_seq,
+                agent_memory,
+                global_memory,
             )
 
             return values, rnn_states_out
@@ -311,7 +317,7 @@ class IPPO_SRMT(MAPPO_SRMT):
             global_memory,
         )
 
-        values, _ = self.actor_critic.forward_critic(obs, critic_h0, masks)
+        values, _ = self.actor_critic.forward_critic(obs, critic_h0, masks, history_seq, agent_memory, global_memory)
         return values, action_log_probs, dist_entropy
 
     def update(self, mini_batch):
@@ -387,3 +393,4 @@ class IPPO_SRMT(MAPPO_SRMT):
         })
 
         return metrics
+

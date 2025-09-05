@@ -73,6 +73,32 @@ class IPPO(MAPPO):
             args_dict = torch.load(args_path, weights_only=False)
             self.args = args_dict['args']
 
+    def get_actions_values(self,
+                           obs,
+                           actor_rnn_states=None,
+                           critic_rnn_states=None,
+                           masks=None,
+                           available_actions=None,
+                           actor=True,
+                           critic=True,
+                           eval=False,
+                           deterministic=False):
+        with torch.no_grad():
+            results = self.actor_critic.forward(
+                x=obs,
+                actor_rnn_states=actor_rnn_states,
+                critic_rnn_states=critic_rnn_states,
+                masks=masks,
+                available_actions=available_actions,
+                actor=actor,
+                critic=critic,
+                eval=eval,
+                deterministic=deterministic,
+            )
+
+
+        return results
+
     def get_values(self,
                    state: torch.Tensor,
                    obs: torch.Tensor,
@@ -81,22 +107,16 @@ class IPPO(MAPPO):
                    masks: torch.Tensor = None):
 
         with torch.no_grad():
-
-            if self.state_type == "AS":
-                # Concatenate observation and state spaces for AS state type
-                state = state * active_masks  # (batch_size, n_state) # Mask out inactive agents
-                state = torch.cat([obs, state], dim=-1)
-
-                # Handle RNN states and masks based on whether RNN is enabled
+            # Handle RNN states and masks based on whether RNN is enabled
             if self.use_rnn:
                 if rnn_states is None or masks is None:
                     raise ValueError("rnn_states and masks must be provided when RNN is enabled")
 
             # Get values and states
-            values, rnn_states_out = self.actor_critic.forward_critic(
+            values, rnn_states_out = self.actor_critic.get_values(
                 obs,
                 rnn_states,
-                masks
+                masks,
             )
 
             return values, rnn_states_out
@@ -119,14 +139,14 @@ class IPPO(MAPPO):
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: (values, action_log_probs, dist_entropy)
         """
-        action_log_probs, dist_entropy, _ = self.actor_critic.evaluate_actions(
+        values, action_log_probs, dist_entropy = self.actor_critic.evaluate_actions(
             obs,
             actions,
             actor_h0,
+            critic_h0,
             masks,
-            available_actions)
-
-        values, _ = self.actor_critic.forward_critic(obs, critic_h0, masks)
+            available_actions,
+        )
         return values, action_log_probs, dist_entropy
 
     def update(self, mini_batch):

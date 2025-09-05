@@ -277,7 +277,7 @@ class IPPO_SRMT(MAPPO_SRMT):
                     raise ValueError("rnn_states and masks must be provided when RNN is enabled")
 
             # Get values and states
-            values, rnn_states_out = self.actor_critic.forward_critic(
+            values, rnn_states_out = self.actor_critic.get_values(
                 obs,
                 rnn_states,
                 masks,
@@ -306,10 +306,11 @@ class IPPO_SRMT(MAPPO_SRMT):
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: (values, action_log_probs, dist_entropy)
         """
-        action_log_probs, dist_entropy, _ = self.actor_critic.evaluate_actions(
+        values, action_log_probs, dist_entropy = self.actor_critic.evaluate_actions(
             obs,
             actions,
             actor_h0,
+            critic_h0,
             masks,
             available_actions,
             history_seq,
@@ -317,7 +318,6 @@ class IPPO_SRMT(MAPPO_SRMT):
             global_memory,
         )
 
-        values, _ = self.actor_critic.forward_critic(obs, critic_h0, masks, history_seq, agent_memory, global_memory)
         return values, action_log_probs, dist_entropy
 
     def update(self, mini_batch):

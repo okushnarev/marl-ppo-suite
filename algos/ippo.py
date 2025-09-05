@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import gymnasium
 
-from networks.mappo_nets import Actor, ActorCriticSRMT, Critic
+from networks.mappo_nets import Actor, ActorCriticSharedWeights, Critic
 from utils.scheduler import LinearScheduler
 from utils.value_normalizers import create_value_normalizer
 from typing import Optional
@@ -20,7 +20,7 @@ class IPPO(MAPPO):
                        state_space: gymnasium.spaces.Box,
                        action_space: gymnasium.spaces.Discrete) -> None:
 
-        self.actor_critic = ActorCriticSRMT(
+        self.actor_critic = ActorCriticSharedWeights(
             self.args,
             obs_space,
             action_space,
@@ -227,7 +227,7 @@ class IPPO_SRMT(MAPPO_SRMT):
                        state_space: gymnasium.spaces.Box,
                        action_space: gymnasium.spaces.Discrete) -> None:
 
-        self.actor_critic = ActorCriticSRMT(
+        self.actor_critic = ActorCriticSharedWeights(
             self.args,
             obs_space,
             action_space,

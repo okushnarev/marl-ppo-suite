@@ -400,7 +400,7 @@ class Critic(nn.Module):
         return values, rnn_states_out
 
 
-class ActorCriticSRMT(nn.Module):
+class ActorCriticSharedWeights(nn.Module):
     """
     Shared weights Actor Critic network
     Without RNN for now
@@ -436,7 +436,7 @@ class ActorCriticSRMT(nn.Module):
             'padding':      ['valid', 'valid',],
         }
         """
-        self.mlp_layer_configs = [self.hidden_size]
+        self.mlp_layer_configs = [self.hidden_size] * 2
 
         # TODO: take Encoder config out of class, just pass self.encoder = CNNMLPEncoder(*EncoderConfig)
         self.encoder = MLPEncoder(
@@ -480,6 +480,7 @@ class ActorCriticSRMT(nn.Module):
                 actor=True,
                 critic=True,
                 eval=False,
+                actions=None,
                 deterministic=False):
         # TODO: check program behavior. Maybe add actions as an input for action evaluation
 
@@ -493,9 +494,8 @@ class ActorCriticSRMT(nn.Module):
             x, additional_outputs = self.core(x, history_seq, agent_memory, global_memory)
 
         # Forward actor
-        actions = None
-        action_log_probs = None
         dist_entropy = None
+        action_log_probs = None
         actor_rnn_states_out = None
         x_actor = x
         if actor:
@@ -516,10 +516,14 @@ class ActorCriticSRMT(nn.Module):
             else:
                 # Convert logits to action probabilities
                 action_dist = Categorical(logits=logits)
-                actions = action_dist.sample().unsqueeze(-1)  # (batch_size, 1)
+                actions = action_dist.sample().unsqueeze(-1) if actions is None else actions  # (batch_size, 1)
                 action_log_probs = action_dist.log_prob(actions.squeeze(-1)).unsqueeze(-1)  # (batch_size, 1)
                 if eval:
                     dist_entropy = action_dist.entropy().unsqueeze(-1)  # [seq_len, batch_size, 1]
+
+        else:
+            actions = None
+
 
         # Forward critic
         values = None
@@ -671,6 +675,7 @@ class ActorCriticSRMT(nn.Module):
                                global_memory=global_memory,
                                deterministic=deterministic,
                                eval=True,
+                               actions=actions,
                                )
 
         values = results['values']

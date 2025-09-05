@@ -1,3 +1,5 @@
+from functools import partial
+
 import numpy as np
 
 from algos.ippo import IPPO, IPPO_SRMT
@@ -12,10 +14,10 @@ class IPPORunner(MAPPORunner):
 
         # Create agent
         self.agent = IPPO(args,
-                           self.envs.observation_space,
-                           self.envs.share_observation_space,
-                           self.envs.action_space,
-                           self.device)
+                          self.envs.observation_space,
+                          self.envs.share_observation_space,
+                          self.envs.action_space,
+                          self.device)
 
 
 class IPPO_SRMTRunner(MAPPO_SRMTRunner):
@@ -28,6 +30,11 @@ class IPPO_SRMTRunner(MAPPO_SRMTRunner):
                                self.envs.share_observation_space,
                                self.envs.action_space,
                                self.device)
+
+    def prep_data(self, data, step):
+        return flatten_first_dims(
+            to_tensor(data[step], device=self.device)
+        ) if data is not None else None
 
     def collect_rollouts(self):
         """
@@ -44,62 +51,30 @@ class IPPO_SRMTRunner(MAPPO_SRMTRunner):
 
         for step in range(self.args.n_steps):
             # Get actions and values
-            (actions_t,
-             action_log_probs_t,
-             actor_rnn_states_t,
-             history_seq_t,
-             agent_memory_t,
-             global_memory_t,) = self.agent.get_actions(
-                flatten_first_dims(
-                    to_tensor(self.buffer.obs[step], device=self.device)
-                ),
-                flatten_first_dims(
-                    to_tensor(self.buffer.actor_rnn_states[step], device=self.device)
-                ) if self.args.use_rnn else None,
-                flatten_first_dims(
-                    to_tensor(self.buffer.active_masks[step], device=self.device)
-                ),
-                flatten_first_dims(
-                    to_tensor(self.buffer.available_actions[step], device=self.device)
-                ) if self.buffer.available_actions is not None else None,
-                flatten_first_dims(
-                    to_tensor(self.buffer.history_seq[step], device=self.device)
-                ) if self.buffer.history_seq is not None else None,
-                flatten_first_dims(
-                    to_tensor(self.buffer.agent_memory[step], device=self.device)
-                ) if self.buffer.agent_memory is not None else None,
-                flatten_first_dims(
-                    to_tensor(self.buffer.global_memory[step], device=self.device)
-                ) if self.buffer.global_memory is not None else None,
-                deterministic=False,
-            )
 
-            values_t, critic_rnn_states_t = self.agent.get_values(
-                flatten_first_dims(
-                    to_tensor(self.buffer.get_state(step, replicate=True), device=self.device)
-                ),
-                flatten_first_dims(
-                    to_tensor(self.buffer.obs[step], device=self.device)
-                ),
-                flatten_first_dims(
-                    to_tensor(self.buffer.active_masks[step], device=self.device)
-                ),
-                flatten_first_dims(
-                    to_tensor(self.buffer.get_critic_rnn(step, replicate=True), device=self.device)
-                ) if self.args.use_rnn else None,
-                flatten_first_dims(
-                    to_tensor(self.buffer.masks[step], device=self.device)
-                ),
-                flatten_first_dims(
-                    to_tensor(self.buffer.history_seq[step], device=self.device)
-                ) if self.buffer.history_seq is not None else None,
-                flatten_first_dims(
-                    to_tensor(self.buffer.agent_memory[step], device=self.device)
-                ) if self.buffer.agent_memory is not None else None,
-                flatten_first_dims(
-                    to_tensor(self.buffer.global_memory[step], device=self.device)
-                ) if self.buffer.global_memory is not None else None,
+            results = self.agent.get_actions_values(
+                *map(partial(self.prep_data, step=step),
+                     (
+                         self.buffer.obs,
+                         self.buffer.actor_rnn_states if self.args.use_rnn else None,
+                         self.buffer.ctitic_rnn_states if self.args.use_rnn else None,
+                         self.buffer.masks,
+                         self.buffer.available_actions,
+                         self.buffer.history_seq,
+                         self.buffer.agent_memory,
+                         self.buffer.global_memory,
+                     )
+                     ),
+                deterministic=False
             )
+            actions_t = results['actions']
+            action_log_probs_t = results['action_log_probs']
+            actor_rnn_states_t = results['actor_rnn_states_out']
+            history_seq_t = results['history_seq']
+            agent_memory_t = results['agent_memory']
+            global_memory_t = results['global_memory']
+            values_t = results['values']
+            critic_rnn_states_t = results['critic_rnn_states_out']
 
             # Reshape actions and values
             shape = (self.args.n_rollout_threads, self.envs.n_agents)
@@ -212,7 +187,3 @@ class IPPO_SRMTRunner(MAPPO_SRMTRunner):
             self.args.gamma,
             self.args.gae_lambda
         )
-
-
-
-

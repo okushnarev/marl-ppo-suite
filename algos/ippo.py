@@ -102,7 +102,7 @@ class IPPO(MAPPO):
             return values, rnn_states_out
 
     def evaluate_actions(self, state, obs, actions, available_actions, masks, active_masks, actor_h0=None,
-                         critic_h0=None,):
+                         critic_h0=None, ):
         """
         Evaluate actions for training.
 
@@ -394,3 +394,38 @@ class IPPO_SRMT(MAPPO_SRMT):
 
         return metrics
 
+    def get_actions_values(self,
+                           obs,
+                           actor_rnn_states=None,
+                           critic_rnn_states=None,
+                           masks=None,
+                           available_actions=None,
+                           history_seq=None,
+                           agent_memory=None,
+                           global_memory=None,
+                           actor=True,
+                           critic=True,
+                           eval=False,
+                           deterministic=False):
+        with torch.no_grad():
+            results = self.actor_critic.forward(
+                x=obs,
+                actor_rnn_states=actor_rnn_states,
+                critic_rnn_states=critic_rnn_states,
+                masks=masks,
+                available_actions=available_actions,
+                history_seq=history_seq,
+                agent_memory=agent_memory,
+                global_memory=global_memory,
+                actor=actor,
+                critic=critic,
+                eval=eval,
+                deterministic=deterministic,
+            )
+
+            additional_outputs = results.pop('additional_outputs')
+            results['history_seq'] = additional_outputs['history_seq']
+            results['agent_memory'] = additional_outputs['agent_memory']
+            results['global_memory'] = additional_outputs['global_memory']
+
+        return results

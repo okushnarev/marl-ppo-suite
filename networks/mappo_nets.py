@@ -453,8 +453,8 @@ class ActorCriticSRMT(nn.Module):
         if self.use_rnn:
             self.actor_rnn = None
             self.critic_rnn = GRUModule(self.hidden_size,
-                                 self.hidden_size,
-                                 num_layers=self.rnn_layers)
+                                        self.hidden_size,
+                                        num_layers=self.rnn_layers)
 
         # SRMT specific params
         self.srmt_core = args.srmt_core
@@ -496,13 +496,13 @@ class ActorCriticSRMT(nn.Module):
         actions = None
         action_log_probs = None
         dist_entropy = None
-        actor_rnn_state_out = None
+        actor_rnn_states_out = None
         x_actor = x
         if actor:
             if self.use_rnn and self.actor_rnn is not None:
                 if actor_rnn_states is None or masks is None:
                     raise ValueError("rnn_states and masks must be provided when use_rnn=True")
-                x_actor, actor_rnn_state_out = self.actor_rnn(x, actor_rnn_states, masks)
+                x_actor, actor_rnn_states_out = self.actor_rnn(x, actor_rnn_states, masks)
 
             logits = self.actor_decoder(x_actor)
             # Apply mask for available actions if provided
@@ -523,13 +523,13 @@ class ActorCriticSRMT(nn.Module):
 
         # Forward critic
         values = None
-        critic_rnn_state_out = None
+        critic_rnn_states_out = None
         x_critic = x
         if critic:
             if self.use_rnn and self.critic_rnn is not None:
                 if critic_rnn_states is None or masks is None:
                     raise ValueError("rnn_states and masks must be provided when use_rnn=True")
-                x_critic, critic_rnn_state_out = self.critic_rnn(x, critic_rnn_states, masks)
+                x_critic, critic_rnn_states_out = self.critic_rnn(x, critic_rnn_states, masks)
             values = self.critic_decoder(x_critic)
 
         results = {
@@ -537,10 +537,10 @@ class ActorCriticSRMT(nn.Module):
             'actions':              actions,
             'action_log_probs':     action_log_probs,
             'dist_entropy':         dist_entropy,
-            'actor_rnn_state_out':  actor_rnn_state_out,
+            'actor_rnn_states_out':  actor_rnn_states_out,
             # Critic part
             'values':               values,
-            'critic_rnn_state_out': critic_rnn_state_out,
+            'critic_rnn_states_out': critic_rnn_states_out,
             # Anything else
             'additional_outputs':   additional_outputs
         }
@@ -555,8 +555,7 @@ class ActorCriticSRMT(nn.Module):
                     history_seq=None,
                     agent_memory=None,
                     global_memory=None,
-                    deterministic=False,
-                    critic_rnn_states=None,):
+                    deterministic=False, ):
         """Get actions from the actor network.
         Batch size is n_agents * n_rollout_threads
 
@@ -578,7 +577,6 @@ class ActorCriticSRMT(nn.Module):
 
         results = self.forward(obs,
                                actor_rnn_states=actor_rnn_states,
-                               critic_rnn_states=critic_rnn_states,
                                masks=masks,
                                available_actions=available_actions,
                                history_seq=history_seq,
@@ -589,25 +587,21 @@ class ActorCriticSRMT(nn.Module):
 
         actions = results['actions']
         action_log_probs = results['action_log_probs']
-        rnn_states_out = results['rnn_states_out']
+        actor_rnn_states_out = results['actor_rnn_states_out']
         additional_outputs = results['additional_outputs']
 
         if self.srmt_core:
-            return actions, action_log_probs, rnn_states_out, additional_outputs
+            return actions, action_log_probs, actor_rnn_states_out, additional_outputs
         else:
-            return actions, action_log_probs, rnn_states_out
-
+            return actions, action_log_probs, actor_rnn_states_out
 
     def get_values(self,
-                    obs,
-                    critic_rnn_states=None,
-                    masks=None,
-                    available_actions=None,
-                    history_seq=None,
-                    agent_memory=None,
-                    global_memory=None,
-                    deterministic=False,
-                    actor_rnn_states=None,):
+                   obs,
+                   critic_rnn_states=None,
+                   masks=None,
+                   history_seq=None,
+                   agent_memory=None,
+                   global_memory=None,):
         """Get actions from the actor network.
         Batch size is n_agents * n_rollout_threads
 
@@ -628,14 +622,11 @@ class ActorCriticSRMT(nn.Module):
         """
 
         results = self.forward(obs,
-                               actor_rnn_states=actor_rnn_states,
                                critic_rnn_states=critic_rnn_states,
                                masks=masks,
-                               available_actions=available_actions,
                                history_seq=history_seq,
                                agent_memory=agent_memory,
                                global_memory=global_memory,
-                               deterministic=deterministic,
                                actor=False)
 
         values = results['values']
@@ -679,6 +670,7 @@ class ActorCriticSRMT(nn.Module):
                                agent_memory=agent_memory,
                                global_memory=global_memory,
                                deterministic=deterministic,
+                               eval=True,
                                )
 
         values = results['values']

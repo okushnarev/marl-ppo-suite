@@ -582,7 +582,7 @@ class RolloutStorageSRMT(RolloutStorage):
         self.srmt_core = args.srmt_core
         self.use_agent_memory = args.use_agent_memory
         self.use_global_memory = args.use_global_memory
-        self.data_chunk_length = args.n_steps
+        self.data_chunk_length = args.data_chunk_length
 
         self._init_srmt_memory()
 

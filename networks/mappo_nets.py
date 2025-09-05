@@ -462,6 +462,83 @@ class ActorCriticSRMT(nn.Module):
 
         self.to(device)
 
+    def forward(self,
+                x,
+                actor_rnn_states=None,
+                critic_rnn_states=None,
+                masks=None,
+                available_actions=None,
+                history_seq=None,
+                agent_memory=None,
+                global_memory=None,
+                actor=True,
+                critic=True,
+                eval=False,
+                deterministic=False):
+
+        if self.use_feature_normalization:
+            x = self.feature_norm(x)
+
+        x = self.encoder(x)
+
+        additional_outputs = {}
+        if self.srmt_core:
+            x, additional_outputs = self.core(x, history_seq, agent_memory, global_memory)
+
+        # Forward actor
+        actions = None
+        action_log_probs = None
+        dist_entropy = None
+        actor_rnn_state_out = None
+        x_actor = x
+        if actor:
+            if self.use_rnn:
+                if actor_rnn_states is None or masks is None:
+                    raise ValueError("rnn_states and masks must be provided when use_rnn=True")
+                x_actor, actor_rnn_state_out = self.actor_rnn(x, actor_rnn_states, masks)
+
+            logits = self.actor_decoder(x_actor)
+            # Apply mask for available actions if provided
+            if available_actions is not None:
+                # Set unavailable actions to have a very small probability
+                logits[available_actions == 0] = -1e10
+
+            if deterministic:
+                actions = torch.argmax(logits, dim=-1, keepdim=True)
+                action_log_probs = None
+            else:
+                # Convert logits to action probabilities
+                action_dist = Categorical(logits=logits)
+                actions = action_dist.sample().unsqueeze(-1)  # (batch_size, 1)
+                action_log_probs = action_dist.log_prob(actions.squeeze(-1)).unsqueeze(-1)  # (batch_size, 1)
+                if eval:
+                    dist_entropy = action_dist.entropy().unsqueeze(-1)  # [seq_len, batch_size, 1]
+
+        # Forward critic
+        values = None
+        critic_rnn_state_out = None
+        x_critic = x
+        if critic:
+            if self.use_rnn:
+                if critic_rnn_states is None or masks is None:
+                    raise ValueError("rnn_states and masks must be provided when use_rnn=True")
+                x_critic, critic_rnn_state_out = self.critic_rnn(x, critic_rnn_states, masks)
+            values = self.critic_decoder(x_critic)
+
+        results = {
+            # Actor part
+            'actions':              actions,
+            'action_log_probs':     action_log_probs,
+            'dist_entropy':         dist_entropy,
+            'actor_rnn_state_out':  actor_rnn_state_out,
+            # Critic part
+            'values':               values,
+            'critic_rnn_state_out': critic_rnn_state_out,
+            # Anything else
+            'additional_outputs':   additional_outputs
+        }
+
+        return results
 
     def forward_actor(self, x, rnn_states=None, masks=None, history_seq=None, agent_memory=None, global_memory=None):
         """
@@ -520,8 +597,9 @@ class ActorCriticSRMT(nn.Module):
                 if use_rnn=True, None otherwise
         """
         # Forward pass to get logits
-        logits, rnn_states_out, additional_outputs = self.forward_actor(obs, rnn_states, masks, history_seq, agent_memory,
-                                                                  global_memory)
+        logits, rnn_states_out, additional_outputs = self.forward_actor(obs, rnn_states, masks, history_seq,
+                                                                        agent_memory,
+                                                                        global_memory)
 
         # Apply mask for available actions if provided
         if available_actions is not None:
@@ -560,8 +638,9 @@ class ActorCriticSRMT(nn.Module):
             dist_entropy: entropy of action distribution [seq_len, batch_size, 1] or [batch_size, 1]
             rnn_states_out: updated RNN states [batch_size, num_layers, hidden_size] or None
         """
-        logits, rnn_states_out, additional_outputs = self.forward_actor(obs, rnn_states, masks, history_seq, agent_memory,
-                                                                  global_memory)
+        logits, rnn_states_out, additional_outputs = self.forward_actor(obs, rnn_states, masks, history_seq,
+                                                                        agent_memory,
+                                                                        global_memory)
 
         if available_actions is not None:
             # Set unavailable actions to have a very small probability

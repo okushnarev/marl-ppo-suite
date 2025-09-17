@@ -348,7 +348,6 @@ class StarCraft2Env(MultiAgentEnv):
             )
             self.stacked_global_state = np.zeros(
                 (
-                    self.n_agents,
                     self.stacked_frames,
                     int(self.get_state_size()[0] / self.stacked_frames),
                 ),
@@ -491,10 +490,10 @@ class StarCraft2Env(MultiAgentEnv):
             self.stacked_global_state = np.roll(self.stacked_global_state, 1, axis=1)
 
             self.stacked_local_obs[:, -1, :] = np.array(local_obs).copy()
-            self.stacked_global_state[:, -1, :] = np.array(global_state).copy()
+            self.stacked_global_state[-1, :] = np.array(global_state).copy()
 
             local_obs = self.stacked_local_obs.reshape(self.n_agents, -1)
-            global_state = self.stacked_global_state.reshape(self.n_agents, -1)
+            global_state = self.stacked_global_state.flatten()
 
         return local_obs, global_state, available_actions
 
@@ -623,15 +622,13 @@ class StarCraft2Env(MultiAgentEnv):
 
             if self.use_stacked_frames:
                 self.stacked_local_obs = np.roll(self.stacked_local_obs, 1, axis=1)
-                self.stacked_global_state = np.roll(
-                    self.stacked_global_state, 1, axis=1
-                )
+                self.stacked_global_state = np.roll(self.stacked_global_state, 1, axis=1)
 
                 self.stacked_local_obs[:, -1, :] = np.array(local_obs).copy()
-                self.stacked_global_state[:, -1, :] = np.array(global_state).copy()
+                self.stacked_global_state[-1, :] = np.array(global_state).copy()
 
                 local_obs = self.stacked_local_obs.reshape(self.n_agents, -1)
-                global_state = self.stacked_global_state.reshape(self.n_agents, -1)
+                global_state = self.stacked_global_state.flatten()
 
             # Dead agents IDs
             info["dead_agents"] = self.get_dead_agents()
@@ -740,10 +737,10 @@ class StarCraft2Env(MultiAgentEnv):
             self.stacked_global_state = np.roll(self.stacked_global_state, 1, axis=1)
 
             self.stacked_local_obs[:, -1, :] = np.array(local_obs).copy()
-            self.stacked_global_state[:, -1, :] = np.array(global_state).copy()
+            self.stacked_global_state[-1, :] = np.array(global_state).copy()
 
             local_obs = self.stacked_local_obs.reshape(self.n_agents, -1)
-            global_state = self.stacked_global_state.reshape(self.n_agents, -1)
+            global_state = self.stacked_global_state.flatten()
 
         return local_obs, global_state, rewards, dones, info, available_actions
 

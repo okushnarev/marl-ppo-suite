@@ -16,4 +16,4 @@ state_pathing_grid: True
 state_terrain_height: True
 state_timestep_number: True
 stacked_frames: 4
-use_stacked_frames: True
+use_stacked_frames: False

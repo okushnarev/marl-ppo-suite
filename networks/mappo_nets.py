@@ -430,22 +430,37 @@ class ActorCriticSharedWeights(nn.Module):
             self.feature_norm = nn.LayerNorm(obs_dim)
         """
         self.cnn_layer_configs = {
-            'out_channels': [4, 2],
-            'kernel_size':  [5, 5],
-            'stride':       [1, 1],
-            'padding':      ['valid', 'valid',],
+            'out_channels': [64, 128, 256],
+            'kernel_size':  [3, 3, 3],
+            'stride':       [2, 1, 1],
+            'padding':      ['valid', 'valid', 'valid'],
         }
         """
         self.mlp_layer_configs = [self.hidden_size] * 2
 
         # TODO: take Encoder config out of class, just pass self.encoder = CNNMLPEncoder(*EncoderConfig)
+        """
+        self.encoder = CNNMLPEncoder(
+            input_dim=obs_dim,
+            output_dim=self.hidden_size,
+            cnn_layer_configs=self.cnn_layer_configs,
+            mlp_layer_configs=self.mlp_layer_configs,
+        )
+        """
+
         self.encoder = MLPEncoder(
             input_dim=obs_dim,
             output_dim=self.hidden_size,
             mlp_layer_configs=self.mlp_layer_configs,
         )
 
-        self.core = TransformerCore(args, self.hidden_size, device)
+
+        # SRMT specific params
+        self.srmt_core = args.srmt_core
+        self.use_agent_memory = args.use_agent_memory
+        self.use_global_memory = args.use_global_memory
+        self.data_chunk_length = args.data_chunk_length
+        self.core = TransformerCore(args, self.hidden_size, device) if self.srmt_core else None
 
         self.actor_decoder = nn.Linear(self.hidden_size, self.action_dim)
         self.critic_decoder = nn.Linear(self.hidden_size, 1)
@@ -456,11 +471,7 @@ class ActorCriticSharedWeights(nn.Module):
                                         self.hidden_size,
                                         num_layers=self.rnn_layers)
 
-        # SRMT specific params
-        self.srmt_core = args.srmt_core
-        self.use_agent_memory = args.use_agent_memory
-        self.use_global_memory = args.use_global_memory
-        self.data_chunk_length = args.data_chunk_length
+
 
         self.apply(lambda module: _orthogonal_init(module, gain=nn.init.calculate_gain('relu')))
         _orthogonal_init(self.actor_decoder, gain=self.actor_gain)

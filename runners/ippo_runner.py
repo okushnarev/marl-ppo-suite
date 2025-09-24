@@ -20,9 +20,16 @@ class IPPORunner(MAPPORunner):
                           self.device)
 
     def prep_data(self, data, step):
-        return flatten_first_dims(
-            to_tensor(data[step], device=self.device)
-        ) if data is not None else None
+        if data is None:
+            return None
+        elif callable(data):
+            return flatten_first_dims(
+                to_tensor(data(step), device=self.device)
+            )
+        else:
+            return flatten_first_dims(
+                to_tensor(data[step], device=self.device)
+            )
 
     def collect_rollouts(self):
         """
@@ -45,7 +52,7 @@ class IPPORunner(MAPPORunner):
                      (
                          self.buffer.obs,
                          self.buffer.actor_rnn_states if self.args.use_rnn else None,
-                         self.buffer.ctitic_rnn_states if self.args.use_rnn else None,
+                         partial(self.buffer.get_critic_rnn, replicate=True) if self.args.use_rnn else None,
                          self.buffer.masks,
                          self.buffer.available_actions,
                      )
@@ -68,6 +75,7 @@ class IPPORunner(MAPPORunner):
             actor_rnn_states = None
             critic_rnn_states = None
             if self.args.use_rnn:
+                actor_rnn_states = unflatten_first_dim(actor_rnn_states_t, shape).cpu().numpy()
                 critic_rnn_states = unflatten_first_dim(critic_rnn_states_t, shape).cpu().numpy()
 
             # Execute actions in environment

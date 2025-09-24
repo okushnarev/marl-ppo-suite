@@ -409,7 +409,7 @@ class ActorCriticSharedWeights(nn.Module):
     def __init__(self, args: Namespace, obs_space: Box, action_space: Discrete, device=torch.device('cpu')):
         super().__init__()
         self.hidden_size = args.hidden_size
-        self.use_rnn = args.use_rnn and self.actor_rnn is not None
+        self.use_rnn = args.use_rnn
         self.use_feature_normalization = args.use_feature_normalization
         self.rnn_layers = args.rnn_layers
 
@@ -466,7 +466,9 @@ class ActorCriticSharedWeights(nn.Module):
         self.critic_decoder = nn.Linear(self.hidden_size, 1)
 
         if self.use_rnn:
-            self.actor_rnn = None
+            self.actor_rnn = GRUModule(self.hidden_size,
+                                        self.hidden_size,
+                                        num_layers=self.rnn_layers)
             self.critic_rnn = GRUModule(self.hidden_size,
                                         self.hidden_size,
                                         num_layers=self.rnn_layers)
@@ -493,7 +495,6 @@ class ActorCriticSharedWeights(nn.Module):
                 eval=False,
                 actions=None,
                 deterministic=False):
-        # TODO: check program behavior. Maybe add actions as an input for action evaluation
 
         if self.use_feature_normalization:
             x = self.feature_norm(x)
